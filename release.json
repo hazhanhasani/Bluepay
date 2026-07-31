@@ -1,0 +1,7 @@
+{
+  "name": "Direct Payment Gateway Bot",
+  "version": "0.2.1",
+  "min_version": "0.1.0",
+  "description": "اصلاح بسته نصب و پشتیبانی از ZIP تو در تو یا دارای پوشه ریشه",
+  "run_migrations": true
+}

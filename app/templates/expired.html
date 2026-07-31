@@ -1,0 +1,4 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>فاکتور منقضی</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><main class="shell compact"><section class="card receipt"><div class="fail-icon">×</div><span class="badge danger">فاکتور بسته شده</span><h1>مهلت پرداخت به پایان رسیده است</h1><p>برای دریافت لینک جدید با پذیرنده تماس بگیرید.</p><div class="summary"><div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div><div><span>مبلغ</span><b>{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} تومان</b></div></div></section></main></body></html>

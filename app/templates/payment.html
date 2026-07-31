@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>پرداخت فاکتور</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="shell">
+  <section class="card merchant-head">
+    <div class="logo">{{ invoice.merchant.name[:1] }}</div>
+    <div><small>پرداخت امن برای</small><h1>{{ invoice.merchant.name }}</h1></div>
+    <span class="badge pending">در انتظار واریز</span>
+  </section>
+
+  <section class="card">
+    <div class="amount-label">مبلغ نهایی قابل پرداخت</div>
+    <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
+    <div class="summary">
+      <div><span>مبلغ سفارش</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
+      <div><span>سهم کارمزد مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>
+      <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
+    </div>
+  </section>
+
+  <section class="card bank-card">
+    <small>واریز به کارت {{ invoice.card.bank_code }}</small>
+    <div id="cardNumber" class="card-number">{{ card_display }}</div>
+    <div class="holder">به نام: {{ invoice.card.account_holder }}</div>
+    {% if card_copy %}<button onclick="copyValue('{{ card_copy }}', this)">کپی شماره کارت</button>{% endif %}
+  </section>
+
+  <section class="card note">
+    <b>نکات مهم</b>
+    <p>مبلغ را دقیقاً برابر عدد بالا واریز کنید. پس از دریافت پیامک بانک، وضعیت این صفحه به‌صورت خودکار تغییر می‌کند.</p>
+    <div class="loader-line"><span></span> در حال بررسی پرداخت...</div>
+  </section>
+</main>
+<script>
+async function copyValue(value, button){
+  await navigator.clipboard.writeText(value);
+  const old = button.textContent; button.textContent = 'کپی شد ✓';
+  setTimeout(()=>button.textContent=old, 1400);
+}
+async function checkStatus(){
+  try{
+    const response = await fetch('/api/payment/{{ invoice.token }}/status', {cache:'no-store'});
+    const data = await response.json();
+    if(data.status === 'paid' || data.status === 'expired' || data.status === 'cancelled') location.reload();
+  }catch(e){}
+}
+setInterval(checkStatus, 3000);
+</script>
+</body>
+</html>

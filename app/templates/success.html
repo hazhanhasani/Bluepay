@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>پرداخت موفق</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><main class="shell compact"><section class="card receipt success-card">
+<div class="success-icon">✓</div><span class="badge success">پرداخت تأیید شد</span>
+<h1>پرداخت با موفقیت انجام شد</h1>
+<p>{{ invoice.merchant.name }}</p>
+<div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
+<div class="summary">
+<div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
+<div><span>شماره پیگیری</span><b>{{ invoice.reference_number or 'ثبت نشده' }}</b></div>
+<div><span>وضعیت</span><b>موفق</b></div>
+</div>
+</section></main></body></html>
