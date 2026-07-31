@@ -18,17 +18,38 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="➕ ساخت فاکتور جدید", callback_data="invoice:new")],
         [
+            InlineKeyboardButton(text="🧾 فاکتورهای من", callback_data="invoices"),
             InlineKeyboardButton(text="💼 کیف پول", callback_data="wallet"),
-            InlineKeyboardButton(text="💳 کارت‌های مقصد", callback_data="cards"),
         ],
         [
+            InlineKeyboardButton(text="💳 کارت‌های مقصد", callback_data="cards"),
             InlineKeyboardButton(text="⚙️ سیاست کارمزد", callback_data="fee"),
+        ],
+        [
             InlineKeyboardButton(text="🔗 اتصال و API", callback_data="connect"),
+            InlineKeyboardButton(text="👤 حساب پذیرنده", callback_data="account"),
         ],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="👑 مرکز مدیریت سامانه", callback_data="admin:panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def account_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
+        ]
+    )
+
+
+def invoices_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="＋ ساخت فاکتور جدید", callback_data="invoice:new")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
+        ]
+    )
 
 
 def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
@@ -41,7 +62,7 @@ def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
             ],
             [InlineKeyboardButton(text="🔔 Callback پرداخت", callback_data="callback:panel")],
             [InlineKeyboardButton(text="🧪 آزمایش Callback", callback_data="callback:test")],
-            [InlineKeyboardButton(text="‹ بازگشت به داشبورد", callback_data="home")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]
     )
 
@@ -83,7 +104,7 @@ def fee_menu(selected: str | None = None) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=label("customer", "👤 پرداخت کامل توسط مشتری"), callback_data="fee:customer")],
             [InlineKeyboardButton(text=label("split", "🤝 تقسیم مساوی هزینه"), callback_data="fee:split")],
             [InlineKeyboardButton(text=label("merchant", "🏪 پرداخت کامل توسط پذیرنده"), callback_data="fee:merchant")],
-            [InlineKeyboardButton(text="‹ بازگشت به داشبورد", callback_data="home")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]
     )
 
@@ -93,7 +114,7 @@ def cards_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="＋ افزودن کارت مقصد", callback_data="card:add")],
             [InlineKeyboardButton(text="💳 مشاهده کارت‌های ثبت‌شده", callback_data="card:list")],
-            [InlineKeyboardButton(text="‹ بازگشت به داشبورد", callback_data="home")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]
     )
 
@@ -111,7 +132,7 @@ def api_menu(docs_url: str) -> InlineKeyboardMarkup:
 
 def flow_cancel_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="× لغو و بازگشت به داشبورد", callback_data="flow:cancel")]]
+        inline_keyboard=[[InlineKeyboardButton(text="× لغو و بازگشت به صفحه اصلی", callback_data="flow:cancel")]]
     )
 
 
@@ -196,7 +217,7 @@ def payment_created_menu(payment_url: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🌐 بازکردن صفحه پرداخت", url=payment_url)],
             [InlineKeyboardButton(text="＋ ساخت فاکتور دیگری", callback_data="invoice:new")],
-            [InlineKeyboardButton(text="⌂ بازگشت به داشبورد", callback_data="home")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]
     )
 
@@ -218,6 +239,6 @@ def admin_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🖥 سلامت سامانه", callback_data="admin:system"),
             ],
             [InlineKeyboardButton(text="📦 مدیریت انتشار نسخه", callback_data="admin:update")],
-            [InlineKeyboardButton(text="‹ بازگشت به داشبورد پذیرنده", callback_data="home")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی پذیرنده", callback_data="home")],
         ]
     )

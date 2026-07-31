@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from app.bot.keyboards import (
     BANK_LABELS,
+    account_menu,
     api_menu,
     callback_menu,
     connection_menu,
@@ -23,6 +24,7 @@ from app.bot.keyboards import (
     invoice_cards_menu,
     invoice_confirm_menu,
     invoice_fee_mode_menu,
+    invoices_menu,
     main_menu,
     payment_created_menu,
     sms_webhook_menu,
@@ -36,6 +38,7 @@ from app.bot.presentation import (
     fee_mode_label,
     field,
     info,
+    invoice_status_label,
     money_toman,
     panel,
     progress,
@@ -104,56 +107,20 @@ async def home_view(user_id: int) -> tuple[str, Merchant | None]:
                 "برای ایجاد حساب و ورود به پنل، دستور <code>/start</code> را ارسال کنید.",
             ), None
 
-        card_count = int(
-            await session.scalar(
-                select(func.count(BankCard.id)).where(
-                    BankCard.merchant_id == merchant.id,
-                    BankCard.is_active.is_(True),
-                )
-            ) or 0
-        )
-        pending_count = int(
-            await session.scalar(
-                select(func.count(Invoice.id)).where(
-                    Invoice.merchant_id == merchant.id,
-                    Invoice.status == "pending",
-                )
-            ) or 0
-        )
-        paid_count = int(
-            await session.scalar(
-                select(func.count(Invoice.id)).where(
-                    Invoice.merchant_id == merchant.id,
-                    Invoice.status == "paid",
-                )
-            ) or 0
-        )
-
-    account_status = badge("active" if merchant.is_active else "inactive")
-    api_status = badge("configured" if merchant.api_key_prefix else "missing")
-    callback_status = badge("configured" if merchant.callback_url else "missing")
-    lines = [
-        f"👤 <b>{esc(merchant.name)}</b>",
-        f"🪪 شناسه پذیرنده: <code>BP-{merchant.id:06d}</code>",
-        f"📡 وضعیت حساب: <b>{account_status}</b>",
-        "",
-        "<b>نمای کلی حساب</b>",
-        f"💰 اعتبار قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
-        f"🏦 کارت‌های فعال: <b>{card_count:,}</b>",
-        f"🕓 فاکتورهای در انتظار: <b>{pending_count:,}</b>",
-        f"✅ پرداخت‌های تأییدشده: <b>{paid_count:,}</b>",
-        "",
-        "<b>وضعیت اتصال</b>",
-        f"🔑 API: <b>{api_status}</b>",
-        f"🔔 Callback: <b>{callback_status}</b>",
-        f"⚙️ سیاست کارمزد: <b>{fee_title(merchant.fee_mode)}</b>",
-    ]
     text = panel(
         "💠",
-        "داشبورد پذیرنده",
-        lines,
-        subtitle="مدیریت پرداخت، فاکتور و اتصال‌های فنی",
-        footer="برای ادامه، یکی از گزینه‌های پنل را انتخاب کنید.",
+        "به بلوپی خوش آمدید",
+        [
+            "بلوپی، زیرساخت یکپارچه مدیریت پرداخت مستقیم برای کسب‌وکارهای آنلاین است.",
+            "",
+            "از این پنل می‌توانید:",
+            "• فاکتور پرداخت صادر کنید.",
+            "• کارت‌های دریافت وجه را مدیریت کنید.",
+            "• پرداخت‌ها را با پیامک بانکی تأیید کنید.",
+            "• سایت یا ربات خود را از طریق API و Callback متصل کنید.",
+        ],
+        subtitle="صدور، دریافت و تأیید هوشمند پرداخت",
+        footer="برای شروع، یکی از گزینه‌های زیر را انتخاب کنید.",
     )
     return text, merchant
 
@@ -177,6 +144,82 @@ async def start(message: Message):
 async def home(callback: CallbackQuery):
     text, merchant = await home_view(callback.from_user.id)
     await callback.message.edit_text(text, reply_markup=main_menu(bool(merchant and merchant.is_admin)))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "account")
+async def account_panel(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+
+    text = panel(
+        "👤",
+        "حساب پذیرنده",
+        [
+            f"👤 نام حساب: <b>{esc(merchant.name)}</b>",
+            f"🪪 شناسه پذیرنده: <code>BP-{merchant.id:06d}</code>",
+            f"📡 وضعیت حساب: <b>{badge('active' if merchant.is_active else 'inactive')}</b>",
+            f"🛡 سطح دسترسی: <b>{'مدیر سامانه' if merchant.is_admin else 'پذیرنده'}</b>",
+            f"📅 تاریخ عضویت: <b>{merchant.created_at.strftime('%Y-%m-%d') if merchant.created_at else '-'}</b>",
+        ],
+        subtitle="مشخصات و وضعیت حساب کاربری",
+        footer="اطلاعات مالی، کارت‌ها و اتصال‌های فنی از بخش‌های اختصاصی پنل در دسترس هستند.",
+    )
+    await callback.message.edit_text(text, reply_markup=account_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "invoices")
+async def invoices_panel(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+
+        pending_count = int(await session.scalar(
+            select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "pending")
+        ) or 0)
+        paid_count = int(await session.scalar(
+            select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "paid")
+        ) or 0)
+        other_count = int(await session.scalar(
+            select(func.count(Invoice.id)).where(
+                Invoice.merchant_id == merchant.id,
+                Invoice.status.in_(["expired", "cancelled", "failed", "review"]),
+            )
+        ) or 0)
+        recent = list((await session.scalars(
+            select(Invoice)
+            .where(Invoice.merchant_id == merchant.id)
+            .order_by(Invoice.id.desc())
+            .limit(5)
+        )).all())
+
+    lines = [
+        f"🕓 در انتظار پرداخت: <b>{pending_count:,}</b>",
+        f"✅ پرداخت‌های تأییدشده: <b>{paid_count:,}</b>",
+        f"📁 سایر وضعیت‌ها: <b>{other_count:,}</b>",
+    ]
+    if recent:
+        lines.extend(["", "<b>آخرین فاکتورها</b>"])
+        for invoice in recent:
+            title = esc(invoice.description or invoice.order_id)
+            lines.append(
+                f"• <b>{title}</b> — {money_toman(invoice.payable_amount_rial)} — "
+                f"{esc(invoice_status_label(invoice.status))}"
+            )
+    else:
+        lines.extend(["", "هنوز فاکتوری برای این حساب ثبت نشده است."])
+
+    text = panel(
+        "🧾",
+        "فاکتورهای من",
+        lines,
+        subtitle="نمای کلی و آخرین وضعیت پرداخت‌ها",
+        footer="برای صدور لینک جدید، گزینه «ساخت فاکتور» را انتخاب کنید.",
+    )
+    await callback.message.edit_text(text, reply_markup=invoices_menu())
     await callback.answer()
 
 
@@ -253,13 +296,24 @@ async def set_fee(callback: CallbackQuery):
 
 @router.callback_query(F.data == "cards")
 async def cards(callback: CallbackQuery):
-    merchant = await current_merchant(callback.from_user.id)
-    if not merchant:
-        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+        total_count = int(await session.scalar(
+            select(func.count(BankCard.id)).where(BankCard.merchant_id == merchant.id)
+        ) or 0)
+        active_count = int(await session.scalar(
+            select(func.count(BankCard.id)).where(BankCard.merchant_id == merchant.id, BankCard.is_active.is_(True))
+        ) or 0)
+
     text = panel(
         "🏦",
         "مدیریت کارت‌های مقصد",
         [
+            f"💳 کارت‌های ثبت‌شده: <b>{total_count:,}</b>",
+            f"🟢 کارت‌های فعال: <b>{active_count:,}</b>",
+            "",
             "برای دریافت پرداخت می‌توانید چند کارت از بانک‌های مختلف ثبت کنید.",
             "کارت پیش‌فرض در انتخاب خودکار اولویت دارد و کارت غیرفعال در فاکتورهای جدید استفاده نمی‌شود.",
         ],
