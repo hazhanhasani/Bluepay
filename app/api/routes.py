@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import re
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
@@ -11,14 +12,15 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.api.deps import api_merchant
+from app.api.deps import ApiContext, api_context
 from app.api.schemas import CreateInvoiceRequest
 from app.core.config import settings
 from app.core.security import decrypt_text
 from app.core.urls import validate_public_https_url
 from app.db.session import get_session
-from app.models import Invoice, Merchant
+from app.models import Invoice, Merchant, Store
 from app.parsers import BANK_PROFILES, bank_label
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import (
@@ -56,7 +58,7 @@ async def _read_sms_webhook_payload(request: Request) -> tuple[str, str, str | N
 def invoice_payload(invoice: Invoice) -> dict:
     return {
         "payment_id": invoice.token,
-        "order_id": invoice.order_id,
+        "order_id": invoice.client_order_id or invoice.order_id,
         "status": invoice.status,
         "purpose": invoice.purpose,
         "base_amount_rial": invoice.base_amount_rial,
@@ -68,6 +70,8 @@ def invoice_payload(invoice: Invoice) -> dict:
         "expires_at": invoice.expires_at.isoformat(),
         "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
         "reference_number": invoice.reference_number,
+        "store_id": invoice.store_id,
+        "api_key_id": invoice.api_key_id,
     }
 
 
@@ -100,6 +104,7 @@ async def developer_docs(request: Request):
             "sms_webhook_url": f"{settings.base_url}/webhooks/sms/MERCHANT_ID/UNIQUE_TOKEN",
             "api_prefix": "gw_...",
             "callback_url": "https://example.com/bluepay/webhook",
+            "stores": [],
             "banks": BANK_PROFILES,
         },
     )
@@ -117,6 +122,16 @@ async def personalized_developer_docs(
         raise HTTPException(status_code=404, detail="مستندات پذیرنده یافت نشد")
     if not hmac.compare_digest(token, merchant_docs_token(merchant)):
         raise HTTPException(status_code=404, detail="مستندات پذیرنده یافت نشد")
+    stores = list((await session.scalars(
+        select(Store)
+        .where(Store.merchant_id == merchant.id)
+        .options(selectinload(Store.api_keys))
+        .order_by(Store.is_active.desc(), Store.id.asc())
+    )).all())
+    first_prefix = next(
+        (key.key_prefix for store in stores for key in store.api_keys if key.is_active),
+        merchant.api_key_prefix or "هنوز ساخته نشده",
+    )
     return templates.TemplateResponse(
         "developers.html",
         {
@@ -124,8 +139,9 @@ async def personalized_developer_docs(
             "base_url": settings.base_url,
             "merchant": merchant,
             "sms_webhook_url": merchant_sms_webhook_url(merchant),
-            "api_prefix": merchant.api_key_prefix or "هنوز ساخته نشده",
+            "api_prefix": first_prefix,
             "callback_url": merchant.callback_url or "هنوز تنظیم نشده",
+            "stores": stores,
             "banks": BANK_PROFILES,
         },
     )
@@ -144,16 +160,34 @@ async def api_banks():
 
 
 @router.get("/api/v1/account")
-async def api_account(merchant: Merchant = Depends(api_merchant)):
+async def api_account(context: ApiContext = Depends(api_context)):
+    merchant = context.merchant
+    store = context.store
+    callback_url = (store.callback_url or merchant.callback_url) if store else merchant.callback_url
     return {
         "success": True,
         "merchant_id": merchant.id,
         "name": merchant.name,
+        "merchant_name": merchant.name,
+        "store": ({
+            "id": store.id,
+            "code": store.code,
+            "name": store.name,
+            "website_url": store.website_url,
+            "active": store.is_active,
+        } if store else None),
+        "api_key": ({
+            "id": context.api_key.id,
+            "label": context.api_key.label,
+            "prefix": context.api_key.key_prefix,
+            "legacy": context.legacy,
+        } if context.api_key else {"legacy": True}),
         "fee_mode": merchant.fee_mode,
         "verification_fee_rial": merchant.verification_fee_rial,
         "fee_enabled": merchant.verification_fee_rial > 0,
         "available_balance_rial": merchant.available_balance_rial,
-        "callback_configured": bool(merchant.callback_url),
+        "callback_configured": bool(callback_url),
+        "callback_url": callback_url,
         "sms_webhook_url": merchant_sms_webhook_url(merchant),
         "developer_docs_url": merchant_docs_url(merchant),
     }
@@ -162,9 +196,10 @@ async def api_account(merchant: Merchant = Depends(api_merchant)):
 @router.post("/api/v1/invoices")
 async def api_create_invoice(
     body: CreateInvoiceRequest,
-    merchant: Merchant = Depends(api_merchant),
+    context: ApiContext = Depends(api_context),
     session: AsyncSession = Depends(get_session),
 ):
+    merchant = context.merchant
     try:
         callback_url = str(body.callback_url) if body.callback_url else None
         if callback_url:
@@ -177,14 +212,33 @@ async def api_create_invoice(
             merchant=merchant,
             base_amount_rial=body.amount_toman * 10,
             description=body.description,
-            order_id=body.order_id,
+            order_id=(
+                f"API-{context.store.id}-{secrets.token_hex(8).upper()}"
+                if context.store and body.order_id
+                else body.order_id
+            ),
+            client_order_id=body.order_id if context.store else None,
             fee_mode=body.fee_mode,
             card_id=body.card_id,
-            callback_url=callback_url,
+            callback_url=(
+                callback_url
+                or (context.store.callback_url if context.store and context.store.callback_url else merchant.callback_url)
+            ),
+            callback_secret=(
+                context.store.callback_secret
+                if context.store and (callback_url or context.store.callback_url)
+                else merchant.callback_secret
+            ),
             ttl_minutes=body.ttl_minutes,
+            store_id=context.store.id if context.store else None,
+            api_key_id=context.api_key.id if context.api_key else None,
         )
         await session.commit()
-        return {"success": True, **invoice_payload(invoice)}
+        payload = invoice_payload(invoice)
+        if context.store:
+            payload["store_code"] = context.store.code
+            payload["store_name"] = context.store.name
+        return {"success": True, **payload}
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=409, detail="order_id قبلاً استفاده شده است")
@@ -196,29 +250,41 @@ async def api_create_invoice(
 @router.get("/api/v1/invoices/{token}")
 async def api_invoice_status(
     token: str,
-    merchant: Merchant = Depends(api_merchant),
+    context: ApiContext = Depends(api_context),
     session: AsyncSession = Depends(get_session),
 ):
-    invoice = await session.scalar(select(Invoice).where(Invoice.token == token, Invoice.merchant_id == merchant.id))
+    conditions = [Invoice.token == token, Invoice.merchant_id == context.merchant.id]
+    if context.store and not context.legacy:
+        conditions.append(Invoice.store_id == context.store.id)
+    invoice = await session.scalar(select(Invoice).where(*conditions))
     if not invoice:
         raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
-    return {"success": True, **invoice_payload(invoice)}
+    payload = invoice_payload(invoice)
+    if context.store:
+        payload.update({"store_code": context.store.code, "store_name": context.store.name})
+    return {"success": True, **payload}
 
 
 @router.post("/api/v1/invoices/{token}/cancel")
 async def api_cancel_invoice(
     token: str,
-    merchant: Merchant = Depends(api_merchant),
+    context: ApiContext = Depends(api_context),
     session: AsyncSession = Depends(get_session),
 ):
-    invoice = await session.scalar(select(Invoice).where(Invoice.token == token, Invoice.merchant_id == merchant.id))
+    conditions = [Invoice.token == token, Invoice.merchant_id == context.merchant.id]
+    if context.store and not context.legacy:
+        conditions.append(Invoice.store_id == context.store.id)
+    invoice = await session.scalar(select(Invoice).where(*conditions))
     if not invoice:
         raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
     if invoice.status != "pending":
         raise HTTPException(status_code=409, detail=f"فاکتور در وضعیت {invoice.status} قابل لغو نیست")
     await release_invoice_reservation(session, invoice, "cancelled")
     await session.commit()
-    return {"success": True, **invoice_payload(invoice)}
+    payload = invoice_payload(invoice)
+    if context.store:
+        payload.update({"store_code": context.store.code, "store_name": context.store.name})
+    return {"success": True, **payload}
 
 
 @router.get("/api/payment/{token}/status")

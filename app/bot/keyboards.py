@@ -94,7 +94,7 @@ def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📚 بازکردن مستندات اختصاصی", url=docs_url)],
             [
-                InlineKeyboardButton(text="🔑 کلید و API", callback_data="api"),
+                InlineKeyboardButton(text="🏪 فروشگاه‌ها و APIها", callback_data="stores"),
                 InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
             ],
             [InlineKeyboardButton(text="🔔 Callback پرداخت", callback_data="callback:panel")],
@@ -159,12 +159,73 @@ def cards_menu() -> InlineKeyboardMarkup:
 def api_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 ایجاد یا تعویض کلید API", callback_data="api:regen")],
+            [InlineKeyboardButton(text="🏪 مدیریت فروشگاه‌ها و کلیدها", callback_data="stores")],
+            [InlineKeyboardButton(text="＋ ثبت فروشگاه جدید", callback_data="store:add")],
             [InlineKeyboardButton(text="📚 مستندات API", url=docs_url + "#api")],
-            [InlineKeyboardButton(text="🔔 تنظیم Callback", callback_data="callback:panel")],
             [InlineKeyboardButton(text="‹ بازگشت به مرکز اتصال", callback_data="connect")],
         ]
     )
+
+
+def stores_menu(stores: Iterable[tuple[int, str, str, bool, int]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for store_id, name, code, active, key_count in stores:
+        marker = "🟢" if active else "⚫️"
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{marker} {name} • {key_count} API",
+                callback_data=f"store:view:{store_id}",
+            )
+        ])
+    rows.extend([
+        [InlineKeyboardButton(text="＋ ثبت فروشگاه جدید", callback_data="store:add")],
+        [InlineKeyboardButton(text="📚 مستندات اتصال", callback_data="api")],
+        [InlineKeyboardButton(text="‹ بازگشت به مرکز اتصال", callback_data="connect")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def store_detail_menu(
+    store_id: int,
+    *,
+    active: bool,
+    callback_configured: bool,
+    keys: Iterable[tuple[int, str, str, bool]],
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="＋ صدور کلید API جدید", callback_data=f"store:key:new:{store_id}")],
+    ]
+    for key_id, label, prefix, key_active in keys:
+        marker = "🟢" if key_active else "⚫️"
+        action = "غیرفعال" if key_active else "فعال"
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{marker} {label} • {prefix}",
+                callback_data="noop",
+            ),
+            InlineKeyboardButton(
+                text=action,
+                callback_data=f"store:key:toggle:{key_id}:{store_id}",
+            ),
+        ])
+    rows.append([InlineKeyboardButton(text="🔔 ثبت یا ویرایش Callback", callback_data=f"store:callback:set:{store_id}")])
+    if callback_configured:
+        rows.append([
+            InlineKeyboardButton(text="🧪 تست Callback", callback_data=f"store:callback:test:{store_id}"),
+            InlineKeyboardButton(text="🗑 حذف Callback", callback_data=f"store:callback:remove:{store_id}"),
+        ])
+    rows.append([InlineKeyboardButton(text="🔐 بازنشانی Secret فروشگاه", callback_data=f"store:secret:{store_id}")])
+    rows.append([
+        InlineKeyboardButton(
+            text="⛔ غیرفعال‌کردن فروشگاه" if active else "✅ فعال‌کردن فروشگاه",
+            callback_data=f"store:toggle:{store_id}",
+        )
+    ])
+    rows.extend([
+        [InlineKeyboardButton(text="↩️ فهرست فروشگاه‌ها", callback_data="stores")],
+        [InlineKeyboardButton(text="⌂ صفحه اصلی", callback_data="home")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def flow_cancel_menu() -> InlineKeyboardMarkup:

@@ -14,7 +14,7 @@
         <div>
           <span class="badge">BluePay Developers</span>
           <h1>مستندات توسعه‌دهندگان بلوپی</h1>
-          <p>API فاکتور، Callback امضاشده و اتصال تأیید پیامک بانکی</p>
+          <p>API چندفروشگاهی، چند کلید مستقل، Callback امضاشده و تأیید پیامک بانکی</p>
         </div>
       </div>
       <a class="ghost-link" href="/">صفحه اصلی سرویس</a>
@@ -26,6 +26,7 @@
       <strong>فهرست راهنما</strong>
       <a href="#quickstart">شروع سریع</a>
       <a href="#credentials">اطلاعات اتصال</a>
+      <a href="#stores">فروشگاه‌ها و کلیدها</a>
       <a href="#api">API فاکتور</a>
       <a href="#bot-example">اتصال ربات تلگرام</a>
       <a href="#callback">Callback پرداخت</a>
@@ -43,7 +44,7 @@
         </div>
         <div class="credential-grid">
           <div><span>شناسه پذیرنده</span><code>{{ merchant.id }}</code></div>
-          <div><span>پیشوند API Key</span><code>{{ api_prefix }}</code></div>
+          <div><span>یک پیشوند فعال API</span><code>{{ api_prefix }}</code></div>
           <div class="wide"><span>آدرس پایه API</span><code>{{ base_url }}/api/v1</code><button onclick="copyCode(this)">کپی</button></div>
           <div class="wide"><span>وبهوک اختصاصی پیامک</span><code>{{ sms_webhook_url }}</code><button onclick="copyCode(this)">کپی</button></div>
           <div class="wide"><span>Callback ثبت‌شده</span><code>{{ callback_url }}</code></div>
@@ -52,11 +53,32 @@
       </section>
       {% endif %}
 
+
+      {% if merchant %}
+      <section class="card" id="stores">
+        <div class="section-title"><div class="icon-box">🏪</div><div><h2>فروشگاه‌ها و دسترسی‌های مستقل</h2><p>هر فروشگاه چند کلید API و Callback اختصاصی دارد</p></div></div>
+        {% if stores %}
+        <div class="credential-grid">
+          {% for store in stores %}
+          <div class="wide">
+            <span>{{ "فعال" if store.is_active else "غیرفعال" }} • {{ store.name }}</span>
+            <code>{{ store.code }}</code>
+            <small>کلیدهای فعال: {{ store.api_keys | selectattr("is_active") | list | length }} • Callback: {{ store.callback_url or "استفاده از پیش‌فرض حساب / تنظیم نشده" }}</small>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="notice warning">هنوز فروشگاهی ثبت نشده است. از ربات وارد «اتصال و API ← فروشگاه‌ها و APIها» شوید.</div>
+        {% endif %}
+        <div class="notice">کلید هر فروشگاه فقط به فاکتورهای همان فروشگاه دسترسی دارد. برای سایت، ربات و محیط آزمایش کلیدهای جداگانه صادر کنید.</div>
+      </section>
+      {% endif %}
+
       <section class="card" id="quickstart">
         <div class="section-title"><div class="icon-box">🚀</div><div><h2>شروع سریع در ۴ مرحله</h2><p>مسیر پیشنهادی برای راه‌اندازی بدون سردرگمی</p></div></div>
         <div class="steps-grid">
-          <div class="step-card"><b>۱</b><h3>ساخت کلید API</h3><p>در ربات وارد «اتصال و API ← کلید API» شوید و کلید را در محل امن نگهداری کنید.</p></div>
-          <div class="step-card"><b>۲</b><h3>ثبت Callback</h3><p>نشانی HTTPS سایت یا ربات را ثبت کنید تا نتیجه پرداخت به‌صورت خودکار ارسال شود.</p></div>
+          <div class="step-card"><b>۱</b><h3>ثبت فروشگاه</h3><p>در ربات، فروشگاه را با نام و نشانی آن ثبت کنید؛ اولین کلید API همان لحظه صادر می‌شود.</p></div>
+          <div class="step-card"><b>۲</b><h3>کلید و Callback مستقل</h3><p>برای هر سرویس کلید جدا بسازید و Callback اختصاصی همان فروشگاه را ثبت کنید.</p></div>
           <div class="step-card"><b>۳</b><h3>ساخت فاکتور</h3><p>با API یک ساخت فاکتور و لینک payment_url را برای مشتری ارسال کن.</p></div>
           <div class="step-card"><b>۴</b><h3>اتصال پیامک بانکی</h3><p>Webhook اختصاصی را در SMS Forwarder ثبت کنید تا واریزها به‌صورت خودکار تأیید شوند.</p></div>
         </div>
@@ -65,7 +87,8 @@
       <section class="card" id="api">
         <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
         <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
-        <div class="notice">کلید API را در فرانت‌اند، HTML یا اپلیکیشن مشتری قرار ندهید. درخواست ساخت فاکتور باید از Backend سایت یا ربات شما ارسال شود.</div>
+        <div class="notice">هر کلید به یک فروشگاه مشخص متصل است. کلید فروشگاه دیگر امکان استعلام یا لغو فاکتورهای این فروشگاه را ندارد. کلید را فقط در Backend نگه دارید.</div>
+        <div class="notice warning">برای سایت اصلی، ربات، برنامه حسابداری و محیط تست، کلیدهای مجزا بسازید تا قطع یک دسترسی روی اتصال‌های دیگر اثر نگذارد.</div>
 
         <h3>ساخت فاکتور</h3>
         <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices</code></div>
@@ -92,7 +115,11 @@
   "unique_amount_rial": 3700,
   "payable_amount_rial": 2013700,
   "payment_url": "{{ base_url }}/pay/PAYMENT_TOKEN",
-  "expires_at": "2026-07-31T18:30:00+00:00"
+  "expires_at": "2026-07-31T18:30:00+00:00",
+  "store_id": 12,
+  "store_code": "ST-A1B2C3D4",
+  "store_name": "فروشگاه اصلی",
+  "api_key_id": 31
 }</code><button onclick="copyPre(this)">کپی</button></pre>
 
         <h3>استعلام وضعیت</h3>
@@ -181,7 +208,7 @@ async def buy(message: Message):
       </section>
 
       <section class="card" id="callback">
-        <div class="section-title"><div class="icon-box">🔔</div><div><h2>Callback نتیجه پرداخت</h2><p>وبهوک خروجی اختصاصی هر پذیرنده</p></div></div>
+        <div class="section-title"><div class="icon-box">🔔</div><div><h2>Callback نتیجه پرداخت</h2><p>وبهوک اختصاصی هر فروشگاه با Secret مستقل</p></div></div>
         <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. در صورت خطا، ارسال تا سه مرتبه تکرار می‌شود.</p>
         <div class="chips"><span>X-Gateway-Signature</span><span>X-Gateway-Event</span><span>X-Gateway-Delivery</span><span>X-Gateway-Timestamp</span></div>
         <pre><code>{
@@ -195,7 +222,11 @@ async def buy(message: Message):
   "unique_amount_rial": 3700,
   "payable_amount_rial": 2013700,
   "reference_number": "998877",
-  "paid_at": "2026-07-31T18:12:10+00:00"
+  "paid_at": "2026-07-31T18:12:10+00:00",
+  "store_id": 12,
+  "store_code": "ST-A1B2C3D4",
+  "store_name": "فروشگاه اصلی",
+  "api_key_id": 31
 }</code><button onclick="copyPre(this)">کپی</button></pre>
 
         <h3>اعتبارسنجی امضا در Python</h3>

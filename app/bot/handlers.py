@@ -28,11 +28,20 @@ from app.bot.keyboards import (
     main_menu,
     payment_created_menu,
     sms_webhook_menu,
+    store_detail_menu,
+    stores_menu,
     wallet_menu,
     wallet_topup_created_menu,
     wallet_topup_menu,
 )
-from app.bot.states import AddCardState, CallbackConfigState, ManualInvoiceState, WalletTopUpState
+from app.bot.states import (
+    AddCardState,
+    CallbackConfigState,
+    ManualInvoiceState,
+    StoreCallbackState,
+    StoreCreateState,
+    WalletTopUpState,
+)
 from app.bot.presentation import (
     DIVIDER,
     badge,
@@ -52,8 +61,8 @@ from app.core.config import settings
 from app.core.security import encrypt_text, random_secret
 from app.core.urls import validate_public_https_url
 from app.db.session import SessionLocal
-from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
-from app.services.callback_service import send_paid_callback, send_test_callback
+from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.services.callback_service import send_paid_callback, send_store_test_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import (
@@ -63,8 +72,15 @@ from app.services.invoice_service import (
     create_wallet_topup_invoice,
     release_invoice_reservation,
 )
-from app.services.merchant_service import credit_wallet, get_or_create_merchant, regenerate_api_key
+from app.services.merchant_service import credit_wallet, get_or_create_merchant
 from app.services.settings_service import get_setting
+from app.services.store_service import (
+    create_store,
+    get_owned_store,
+    issue_store_api_key,
+    list_merchant_stores,
+    set_key_active,
+)
 from app.parsers import BANK_PROFILES, normalize_bank_code
 
 router = Router()
@@ -1013,86 +1029,494 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "connect")
 async def connection_panel(callback: CallbackQuery):
-    merchant = await current_merchant(callback.from_user.id)
-    if not merchant:
-        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+        store_count = int(await session.scalar(
+            select(func.count(Store.id)).where(Store.merchant_id == merchant.id, Store.is_active.is_(True))
+        ) or 0)
+        key_count = int(await session.scalar(
+            select(func.count(StoreApiKey.id))
+            .join(Store, Store.id == StoreApiKey.store_id)
+            .where(
+                Store.merchant_id == merchant.id,
+                Store.is_active.is_(True),
+                StoreApiKey.is_active.is_(True),
+            )
+        ) or 0)
+        store_callback_count = int(await session.scalar(
+            select(func.count(Store.id)).where(
+                Store.merchant_id == merchant.id,
+                Store.is_active.is_(True),
+                Store.callback_url.is_not(None),
+            )
+        ) or 0)
     docs_url = merchant_docs_url(merchant)
-    callback_status = badge("configured" if merchant.callback_url else "missing")
-    api_status = badge("configured" if merchant.api_key_prefix else "missing")
-    ready_count = int(bool(merchant.api_key_prefix)) + int(bool(merchant.callback_url)) + 1
+    api_ready = store_count > 0 and key_count > 0
+    callback_ready = store_callback_count > 0 or bool(merchant.callback_url)
+    ready_count = int(api_ready) + int(callback_ready) + 1
     text = panel(
         "🔌",
         "مرکز اتصال و توسعه‌دهندگان",
         [
             f"📈 پیشرفت راه‌اندازی: <b>{ready_count} از 3 سرویس</b>",
             "",
-            f"🔑 دسترسی API: <b>{api_status}</b>",
+            f"🏪 فروشگاه‌های فعال: <b>{store_count:,}</b>",
+            f"🔑 کلیدهای API فعال: <b>{key_count:,}</b>",
             f"📲 دریافت پیامک بانکی: <b>{badge('ready')}</b>",
-            f"🔔 Callback نتیجه پرداخت: <b>{callback_status}</b>",
+            f"🔔 Callback فروشگاهی: <b>{badge('configured' if callback_ready else 'missing')}</b>",
             "",
-            "<b>مسیر پیشنهادی اتصال</b>",
-            "1️⃣ کلید API را ایجاد و در سرور خود ذخیره کنید.",
-            "2️⃣ وبهوک اختصاصی پیامک را در گوشی متصل کنید.",
-            "3️⃣ آدرس Callback سایت یا ربات را ثبت و آزمایش کنید.",
-            "4️⃣ از مستندات اختصاصی یک فاکتور آزمایشی بسازید.",
+            "<b>اتصال پیشنهادی</b>",
+            "1️⃣ فروشگاه خود را ثبت کنید.",
+            "2️⃣ برای محیط‌های تولید، تست یا ربات، کلیدهای API جداگانه بسازید.",
+            "3️⃣ Callback اختصاصی همان فروشگاه را ثبت و آزمایش کنید.",
+            "4️⃣ کلید هر فروشگاه را فقط در Backend همان پروژه نگه دارید.",
             "",
             f"📘 مستندات حساب:\n<code>{esc(docs_url)}</code>",
         ],
-        subtitle="اتصال امن سایت، ربات و SMS Forwarder",
-        footer="تمام نشانی‌ها و کلیدهای این بخش اختصاصی حساب شما هستند.",
+        subtitle="مدیریت چند فروشگاه، چند API و Callback مستقل",
+        footer="وبهوک پیامک در سطح پذیرنده مشترک است؛ API و Callback برای هر فروشگاه جدا مدیریت می‌شوند.",
     )
     await callback.message.edit_text(text, reply_markup=connection_menu(docs_url))
     await callback.answer()
+
 
 @router.callback_query(F.data == "api")
 async def api_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
         return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
-    prefix = merchant.api_key_prefix or "ایجاد نشده"
-    callback_url = merchant.callback_url or "تنظیم نشده"
     docs_url = merchant_docs_url(merchant)
     text = panel(
         "🔑",
-        "دسترسی API",
+        "API فروشگاهی",
         [
-            f"📡 وضعیت: <b>{badge('configured' if merchant.api_key_prefix else 'missing')}</b>",
-            f"🪪 پیشوند کلید: <code>{esc(prefix)}</code>",
             f"🌐 آدرس پایه: <code>{settings.base_url}/api/v1</code>",
-            f"🔔 Callback پیش‌فرض: <code>{esc(callback_url)}</code>",
+            "",
+            "هر فروشگاه یک شناسه و Callback مستقل دارد و می‌تواند چند کلید API فعال داشته باشد.",
+            "برای نمونه می‌توانید کلیدهای «سایت اصلی»، «ربات فروش» و «محیط آزمایش» را جدا صادر کنید.",
             "",
             "<b>هدر احراز هویت</b>",
             "<code>X-API-Key: gw_your_private_key</code>",
+            "",
+            "فاکتورهای ساخته‌شده با هر کلید به همان فروشگاه متصل می‌شوند و کلید فروشگاه دیگری امکان مشاهده یا لغو آن‌ها را ندارد.",
         ],
-        subtitle="ساخت فاکتور و استعلام پرداخت از سایت یا ربات",
-        footer="کلید کامل فقط هنگام ایجاد نمایش داده می‌شود. آن را در کد سمت کاربر یا مخزن عمومی قرار ندهید.",
+        subtitle="جداسازی امن دسترسی‌ها برای هر کسب‌وکار",
+        footer="کلید کامل فقط هنگام صدور نمایش داده می‌شود؛ برای هر سرویس یک کلید جدا بسازید.",
     )
     await callback.message.edit_text(text, reply_markup=api_menu(docs_url))
     await callback.answer()
 
-@router.callback_query(F.data == "api:regen")
-async def api_regen(callback: CallbackQuery):
+
+async def _render_stores(callback: CallbackQuery) -> None:
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
         if not merchant:
             return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
-        key = await regenerate_api_key(session, merchant)
+        stores = await list_merchant_stores(session, merchant.id)
+    rows = [
+        (store.id, store.name, store.code, store.is_active, sum(1 for key in store.api_keys if key.is_active))
+        for store in stores
+    ]
+    active_stores = sum(1 for store in stores if store.is_active)
+    active_keys = sum(sum(1 for key in store.api_keys if key.is_active) for store in stores if store.is_active)
+    lines = [
+        f"🏪 تعداد فروشگاه‌ها: <b>{len(stores):,}</b>",
+        f"✅ فروشگاه فعال: <b>{active_stores:,}</b>",
+        f"🔑 کلید API فعال: <b>{active_keys:,}</b>",
+        "",
+        "هر فروشگاه دارای کد، Callback، Secret و مجموعه کلیدهای API مستقل است.",
+    ]
+    if not stores:
+        lines.extend(["", "هنوز فروشگاهی ثبت نشده است؛ برای شروع یک فروشگاه ایجاد کنید."])
+    await callback.message.edit_text(
+        panel(
+            "🏪",
+            "فروشگاه‌ها و دسترسی‌های API",
+            lines,
+            subtitle="ثبت و مدیریت چند کسب‌وکار در یک حساب پذیرنده",
+            footer="حداکثر ۲۰ فروشگاه و برای هر فروشگاه حداکثر ۱۰ کلید API فعال قابل ایجاد است.",
+        ),
+        reply_markup=stores_menu(rows),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "stores")
+async def stores_panel(callback: CallbackQuery):
+    await _render_stores(callback)
+
+
+@router.callback_query(F.data == "store:add")
+async def store_add_start(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await state.set_state(StoreCreateState.name)
+    await callback.message.edit_text(
+        panel(
+            "🏪",
+            "ثبت فروشگاه جدید",
+            [
+                "نام فروشگاه یا پروژه‌ای که پرداخت‌های آن از این API انجام می‌شود را وارد کنید.",
+                "نمونه: <code>فروشگاه اینترنتی رویال</code>",
+            ],
+            subtitle="مرحله ۱ از ۲ • مشخصات فروشگاه",
+            footer="بعداً برای همین فروشگاه می‌توانید چند کلید API مستقل صادر کنید.",
+        ),
+        reply_markup=flow_cancel_menu(),
+    )
+    await callback.answer()
+
+
+@router.message(StoreCreateState.name)
+async def store_add_name(message: Message, state: FSMContext):
+    name = " ".join((message.text or "").split()).strip()
+    if len(name) < 2 or len(name) > 120:
+        return await message.answer("نام فروشگاه باید بین ۲ تا ۱۲۰ نویسه باشد.", reply_markup=flow_cancel_menu())
+    await state.update_data(store_name=name)
+    await state.set_state(StoreCreateState.website)
+    await message.answer(
+        panel(
+            "🌐",
+            "نشانی فروشگاه",
+            [
+                "نشانی HTTPS سایت یا پنل فروشگاه را ارسال کنید.",
+                "نمونه: <code>https://shop.example.com</code>",
+                "",
+                "اگر فروشگاه شما سایت ندارد، یک خط تیره <code>-</code> ارسال کنید.",
+            ],
+            subtitle="مرحله ۲ از ۲ • نشانی اختیاری",
+        ),
+        reply_markup=flow_cancel_menu(),
+    )
+
+
+@router.message(StoreCreateState.website)
+async def store_add_website(message: Message, state: FSMContext):
+    raw = (message.text or "").strip()
+    website_url: str | None = None
+    if raw != "-":
+        candidate = raw if "://" in raw else f"https://{raw}"
+        valid, normalized = validate_public_https_url(candidate)
+        if not valid:
+            return await message.answer(
+                warning("نشانی فروشگاه معتبر نیست", esc(normalized), footer="نشانی HTTPS عمومی یا علامت - را ارسال کنید."),
+                reply_markup=flow_cancel_menu(),
+            )
+        website_url = normalized
+    data = await state.get_data()
+    try:
+        async with SessionLocal() as session:
+            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+            if not merchant:
+                raise ValueError("حساب پذیرنده یافت نشد")
+            store = await create_store(session, merchant, data.get("store_name", "فروشگاه"), website_url)
+            key_record, plain_key = await issue_store_api_key(session, store, "کلید اصلی")
+            await session.commit()
+            store_id = store.id
+            store_code = store.code
+            store_name = store.name
+            secret = store.callback_secret
+        await state.clear()
+        await message.answer(
+            success(
+                "فروشگاه و اولین کلید API ساخته شد",
+                "\n".join([
+                    f"🏪 فروشگاه: <b>{esc(store_name)}</b>",
+                    f"🪪 کد فروشگاه: <code>{esc(store_code)}</code>",
+                    f"🔑 شناسه کلید: <code>{key_record.id}</code>",
+                    "",
+                    "<b>کلید محرمانه؛ فقط همین یک‌بار نمایش داده می‌شود</b>",
+                    f"<code>{plain_key}</code>",
+                    "",
+                    "هدر درخواست:",
+                    "<code>X-API-Key: YOUR_KEY</code>",
+                    "",
+                    f"🔐 Secret امضای Callback:\n<code>{esc(secret)}</code>",
+                ]),
+                footer="کلید را در Backend فروشگاه ذخیره کنید؛ قرار دادن آن در کد فرانت‌اند یا کانال عمومی ناامن است.",
+            ),
+            reply_markup=store_detail_menu(
+                store_id,
+                active=True,
+                callback_configured=False,
+                keys=[(key_record.id, key_record.label, key_record.key_prefix, True)],
+            ),
+        )
+    except ValueError as exc:
+        await state.clear()
+        await message.answer(error("ثبت فروشگاه انجام نشد", esc(str(exc))), reply_markup=main_menu(False))
+
+
+async def _render_store_detail(callback: CallbackQuery, store_id: int, *, notice: str | None = None) -> None:
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        store = await get_owned_store(session, merchant.id, store_id, with_keys=True)
+        if not store:
+            return await callback.answer("فروشگاه یافت نشد.", show_alert=True)
+        invoice_count = int(await session.scalar(
+            select(func.count(Invoice.id)).where(Invoice.store_id == store.id)
+        ) or 0)
+        paid_count = int(await session.scalar(
+            select(func.count(Invoice.id)).where(Invoice.store_id == store.id, Invoice.status == "paid")
+        ) or 0)
+        keys = sorted(store.api_keys, key=lambda item: item.id)
+        values = {
+            "id": store.id,
+            "name": store.name,
+            "code": store.code,
+            "website": store.website_url,
+            "callback": store.callback_url,
+            "secret": store.callback_secret,
+            "active": store.is_active,
+        }
+    lines = [
+        f"📡 وضعیت: <b>{badge('active' if values['active'] else 'inactive')}</b>",
+        f"🪪 کد فروشگاه: <code>{esc(values['code'])}</code>",
+        f"🌐 نشانی: <code>{esc(values['website'] or 'ثبت نشده')}</code>",
+        f"🔔 Callback: <code>{esc(values['callback'] or 'تنظیم نشده')}</code>",
+        f"🔐 Secret امضا: <code>{esc(values['secret'])}</code>",
+        "",
+        f"🔑 کلیدهای فعال: <b>{sum(1 for key in keys if key.is_active):,}</b>",
+        f"🧾 کل فاکتورها: <b>{invoice_count:,}</b>",
+        f"✅ پرداخت‌های موفق: <b>{paid_count:,}</b>",
+    ]
+    if notice:
+        lines.extend(["", f"✅ {esc(notice)}"])
+    await callback.message.edit_text(
+        panel(
+            "🏪",
+            values["name"],
+            lines,
+            subtitle="تنظیمات اتصال و دسترسی‌های فروشگاه",
+            footer="غیرفعال‌کردن یک کلید فقط همان اتصال را متوقف می‌کند؛ سایر کلیدهای فروشگاه فعال می‌مانند.",
+        ),
+        reply_markup=store_detail_menu(
+            store_id,
+            active=values["active"],
+            callback_configured=bool(values["callback"]),
+            keys=[(key.id, key.label, key.key_prefix, key.is_active) for key in keys],
+        ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("store:view:"))
+async def store_view(callback: CallbackQuery):
+    await _render_store_detail(callback, int(callback.data.rsplit(":", 1)[1]))
+
+
+@router.callback_query(F.data.startswith("store:key:new:"))
+async def store_key_new(callback: CallbackQuery):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    try:
+        async with SessionLocal() as session:
+            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+            if not merchant:
+                raise ValueError("حساب پذیرنده یافت نشد")
+            store = await get_owned_store(session, merchant.id, store_id, with_keys=True)
+            if not store:
+                raise ValueError("فروشگاه یافت نشد")
+            if not store.is_active:
+                raise ValueError("برای صدور کلید، ابتدا فروشگاه را فعال کنید")
+            key_record, plain_key = await issue_store_api_key(session, store)
+            await session.commit()
+        await callback.message.answer(
+            success(
+                "کلید API جدید صادر شد",
+                "\n".join([
+                    f"🏪 فروشگاه: <b>{esc(store.name)}</b>",
+                    f"🏷 عنوان: <b>{esc(key_record.label)}</b>",
+                    f"🪪 شناسه کلید: <code>{key_record.id}</code>",
+                    "",
+                    "<b>کلید محرمانه؛ فقط همین یک‌بار نمایش داده می‌شود</b>",
+                    f"<code>{plain_key}</code>",
+                ]),
+                footer="برای هر سایت، ربات یا محیط اجرا یک کلید جدا استفاده کنید تا بتوانید دسترسی آن را مستقل قطع کنید.",
+            )
+        )
+        await _render_store_detail(callback, store_id)
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+
+
+@router.callback_query(F.data.startswith("store:key:toggle:"))
+async def store_key_toggle(callback: CallbackQuery):
+    _, _, _, key_id_raw, store_id_raw = callback.data.split(":")
+    key_id, store_id = int(key_id_raw), int(store_id_raw)
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        key = await session.get(StoreApiKey, key_id)
+        if not key or key.merchant_id != merchant.id or key.store_id != store_id:
+            return await callback.answer("کلید API یافت نشد.", show_alert=True)
+        new_active = not key.is_active
+        try:
+            await set_key_active(session, merchant.id, key.id, new_active)
+        except ValueError as exc:
+            return await callback.answer(str(exc), show_alert=True)
+        status = "فعال" if new_active else "غیرفعال"
+        await session.commit()
+    await _render_store_detail(callback, store_id, notice=f"کلید API {status} شد.")
+
+
+@router.callback_query(F.data.startswith("store:toggle:"))
+async def store_toggle(callback: CallbackQuery):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        store = await get_owned_store(session, merchant.id, store_id)
+        if not store:
+            return await callback.answer("فروشگاه یافت نشد.", show_alert=True)
+        store.is_active = not store.is_active
+        active = store.is_active
+        await session.commit()
+    await _render_store_detail(callback, store_id, notice="فروشگاه فعال شد." if active else "فروشگاه غیرفعال شد.")
+
+
+@router.callback_query(F.data.startswith("store:callback:set:"))
+async def store_callback_set_start(callback: CallbackQuery, state: FSMContext):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        store = await get_owned_store(session, merchant.id, store_id) if merchant else None
+        if not store:
+            return await callback.answer("فروشگاه یافت نشد.", show_alert=True)
+    await state.clear()
+    await state.update_data(store_id=store_id)
+    await state.set_state(StoreCallbackState.url)
+    await callback.message.edit_text(
+        panel(
+            "🔔",
+            "Callback اختصاصی فروشگاه",
+            [
+                f"🏪 فروشگاه: <b>{esc(store.name)}</b>",
+                "نشانی HTTPS عمومی دریافت نتیجه پرداخت را ارسال کنید.",
+                "نمونه: <code>https://shop.example.com/api/payment/callback</code>",
+            ],
+            subtitle="رویدادهای این فروشگاه از سایر فروشگاه‌ها جدا ارسال می‌شوند",
+            footer="Secret امضای اختصاصی فروشگاه در صفحه جزئیات نمایش داده می‌شود.",
+        ),
+        reply_markup=flow_cancel_menu(),
+    )
+    await callback.answer()
+
+
+@router.message(StoreCallbackState.url)
+async def store_callback_set_value(message: Message, state: FSMContext):
+    valid, normalized = validate_public_https_url((message.text or "").strip())
+    if not valid:
+        return await message.answer(
+            warning("نشانی Callback معتبر نیست", esc(normalized), footer="یک نشانی HTTPS عمومی وارد کنید."),
+            reply_markup=flow_cancel_menu(),
+        )
+    data = await state.get_data()
+    store_id = int(data.get("store_id", 0))
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        store = await get_owned_store(session, merchant.id, store_id) if merchant else None
+        if not store:
+            await state.clear()
+            return await message.answer(error("فروشگاه یافت نشد", "فرایند را دوباره آغاز کنید."))
+        store.callback_url = normalized
+        if not store.callback_secret:
+            store.callback_secret = random_secret(32)
+        await session.commit()
+        secret = store.callback_secret
+        name = store.name
+    await state.clear()
+    await message.answer(
+        success(
+            "Callback فروشگاه ثبت شد",
+            f"🏪 فروشگاه: <b>{esc(name)}</b>\n🌐 نشانی:\n<code>{esc(normalized)}</code>\n\n🔐 Secret:\n<code>{esc(secret)}</code>",
+            footer="از صفحه فروشگاه، رویداد آزمایشی ارسال کنید.",
+        ),
+        reply_markup=main_menu(bool(merchant and merchant.is_admin)),
+    )
+
+
+@router.callback_query(F.data.startswith("store:callback:remove:"))
+async def store_callback_remove(callback: CallbackQuery):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        store = await get_owned_store(session, merchant.id, store_id) if merchant else None
+        if not store:
+            return await callback.answer("فروشگاه یافت نشد.", show_alert=True)
+        store.callback_url = None
+        await session.commit()
+    await _render_store_detail(callback, store_id, notice="Callback فروشگاه حذف شد.")
+
+
+@router.callback_query(F.data.startswith("store:secret:"))
+async def store_secret_regen(callback: CallbackQuery):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        store = await get_owned_store(session, merchant.id, store_id) if merchant else None
+        if not store:
+            return await callback.answer("فروشگاه یافت نشد.", show_alert=True)
+        store.callback_secret = random_secret(32)
+        secret = store.callback_secret
         await session.commit()
     await callback.message.answer(
+        warning(
+            "Secret فروشگاه بازنشانی شد",
+            f"Secret جدید:\n<code>{esc(secret)}</code>",
+            footer="Secret قبلی برای رویدادهای جدید معتبر نیست؛ فاکتورهای در انتظار، Secret ذخیره‌شده زمان صدور را حفظ می‌کنند.",
+        )
+    )
+    await _render_store_detail(callback, store_id)
+
+
+@router.callback_query(F.data.startswith("store:callback:test:"))
+async def store_callback_test(callback: CallbackQuery):
+    store_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        store = await get_owned_store(session, merchant.id, store_id) if merchant else None
+        if not store or not store.callback_url:
+            return await callback.answer("ابتدا Callback فروشگاه را ثبت کنید.", show_alert=True)
+    await callback.answer("در حال آزمایش اتصال…")
+    ok, result = await send_store_test_callback(store)
+    await callback.message.answer(
+        success("آزمایش Callback فروشگاه موفق بود", f"پاسخ مقصد: <code>{esc(result)}</code>")
+        if ok else
+        error("آزمایش Callback فروشگاه ناموفق بود", f"نتیجه: <code>{esc(result)}</code>")
+    )
+
+
+@router.callback_query(F.data == "api:regen")
+async def api_regen_legacy(callback: CallbackQuery):
+    """Compatibility for old keyboards: issue a key for the first active store."""
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        store = await session.scalar(
+            select(Store).where(Store.merchant_id == merchant.id, Store.is_active.is_(True)).order_by(Store.id.asc())
+        )
+        if not store:
+            return await callback.answer("ابتدا یک فروشگاه ثبت کنید.", show_alert=True)
+        try:
+            key_record, plain_key = await issue_store_api_key(session, store)
+            await session.commit()
+        except ValueError as exc:
+            return await callback.answer(str(exc), show_alert=True)
+    await callback.message.answer(
         success(
-            "کلید API جدید صادر شد",
-            "\n".join([
-                "این کلید فقط همین یک‌بار نمایش داده می‌شود:",
-                "",
-                f"<code>{key}</code>",
-                "",
-                "هدر درخواست‌ها:",
-                "<code>X-API-Key: YOUR_KEY</code>",
-            ]),
-            footer="کلید را فقط در Backend یا تنظیمات محرمانه ربات نگهداری کنید؛ ایجاد کلید جدید، کلید قبلی را باطل می‌کند.",
+            "کلید API فروشگاهی صادر شد",
+            f"🏪 {esc(store.name)}\n🏷 {esc(key_record.label)}\n\n<code>{plain_key}</code>",
+            footer="کلید کامل فقط همین یک‌بار نمایش داده می‌شود.",
         )
     )
     await callback.answer("کلید جدید ایجاد شد.")
+
 
 @router.callback_query(F.data == "sms:webhook")
 async def sms_info(callback: CallbackQuery):

@@ -43,10 +43,70 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
                 text("ALTER TABLE invoices ADD COLUMN wallet_target_merchant_id BIGINT")
             )
             changed = True
+        if "store_id" not in invoice_columns:
+            await connection.execute(text("ALTER TABLE invoices ADD COLUMN store_id BIGINT"))
+            changed = True
+        if "api_key_id" not in invoice_columns:
+            await connection.execute(text("ALTER TABLE invoices ADD COLUMN api_key_id BIGINT"))
+            changed = True
+        if "client_order_id" not in invoice_columns:
+            await connection.execute(text("ALTER TABLE invoices ADD COLUMN client_order_id VARCHAR(120)"))
+            changed = True
         await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_purpose ON invoices (purpose)"))
         await connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_invoices_wallet_target ON invoices (wallet_target_merchant_id)")
         )
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_store_id ON invoices (store_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_api_key_id ON invoices (api_key_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_client_order_id ON invoices (client_order_id)"))
+        await connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_client_order "
+                "ON invoices (store_id, client_order_id) "
+                "WHERE store_id IS NOT NULL AND client_order_id IS NOT NULL"
+            )
+        )
+
+        key_table_result = await connection.execute(text("PRAGMA table_info(store_api_keys)"))
+        key_columns = {str(row[1]) for row in key_table_result.fetchall()}
+        if key_columns and "is_legacy" not in key_columns:
+            await connection.execute(
+                text("ALTER TABLE store_api_keys ADD COLUMN is_legacy BOOLEAN NOT NULL DEFAULT 0")
+            )
+            changed = True
+        await connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_store_api_keys_is_legacy ON store_api_keys (is_legacy)")
+        )
+
+        # Preserve old single API keys by attaching them to a generated main store.
+        # The plaintext key is not needed; the existing hash remains valid.
+        legacy_store_insert = await connection.execute(
+            text(
+                "INSERT INTO stores "
+                "(merchant_id, code, name, website_url, callback_url, callback_secret, is_active, created_at, updated_at) "
+                "SELECT m.id, 'LEGACY-' || m.id, m.name || ' - فروشگاه اصلی', NULL, "
+                "m.callback_url, m.callback_secret, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                "FROM merchants m "
+                "WHERE m.api_key_hash IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM stores s WHERE s.merchant_id = m.id)"
+            )
+        )
+        if (legacy_store_insert.rowcount or 0) > 0:
+            changed = True
+
+        legacy_key_insert = await connection.execute(
+            text(
+                "INSERT OR IGNORE INTO store_api_keys "
+                "(merchant_id, store_id, label, key_hash, key_prefix, is_active, is_legacy, last_used_at, created_at, updated_at) "
+                "SELECT m.id, s.id, 'کلید قدیمی منتقل‌شده', m.api_key_hash, m.api_key_prefix, 1, 1, NULL, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                "FROM merchants m JOIN stores s ON s.merchant_id = m.id "
+                "WHERE m.api_key_hash IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM store_api_keys k WHERE k.key_hash = m.api_key_hash)"
+            )
+        )
+        if (legacy_key_insert.rowcount or 0) > 0:
+            changed = True
 
         # Protect pending invoices created by older versions as well.
         await connection.execute(

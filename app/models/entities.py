@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -28,10 +28,45 @@ class Merchant(TimestampMixin, Base):
 
     cards: Mapped[list[BankCard]] = relationship(back_populates="merchant", cascade="all, delete-orphan")
     invoices: Mapped[list[Invoice]] = relationship(back_populates="merchant", foreign_keys="Invoice.merchant_id")
+    stores: Mapped[list[Store]] = relationship(back_populates="merchant", cascade="all, delete-orphan")
 
     @property
     def available_balance_rial(self) -> int:
         return self.wallet_balance_rial - self.reserved_balance_rial
+
+
+class Store(TimestampMixin, Base):
+    __tablename__ = "stores"
+    __table_args__ = (UniqueConstraint("merchant_id", "code", name="uq_store_merchant_code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    website_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    callback_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    callback_secret: Mapped[str] = mapped_column(String(160))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+    merchant: Mapped[Merchant] = relationship(back_populates="stores")
+    api_keys: Mapped[list[StoreApiKey]] = relationship(back_populates="store", cascade="all, delete-orphan")
+    invoices: Mapped[list[Invoice]] = relationship(back_populates="store", foreign_keys="Invoice.store_id")
+
+
+class StoreApiKey(TimestampMixin, Base):
+    __tablename__ = "store_api_keys"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(80), default="کلید اصلی")
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    key_prefix: Mapped[str] = mapped_column(String(16), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_legacy: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    store: Mapped[Store] = relationship(back_populates="api_keys")
 
 
 class BankCard(TimestampMixin, Base):
@@ -55,13 +90,17 @@ class BankCard(TimestampMixin, Base):
 
 class Invoice(TimestampMixin, Base):
     __tablename__ = "invoices"
-    __table_args__ = (UniqueConstraint("merchant_id", "order_id", name="uq_invoice_order"),)
+    __table_args__ = (
+        UniqueConstraint("merchant_id", "order_id", name="uq_invoice_order"),
+        Index("uq_invoices_store_client_order", "store_id", "client_order_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="RESTRICT"), index=True)
     card_id: Mapped[int] = mapped_column(ForeignKey("bank_cards.id", ondelete="RESTRICT"), index=True)
     order_id: Mapped[str] = mapped_column(String(120), index=True)
+    client_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     base_amount_rial: Mapped[int] = mapped_column(BigInteger)
@@ -74,6 +113,12 @@ class Invoice(TimestampMixin, Base):
     wallet_target_merchant_id: Mapped[int | None] = mapped_column(
         ForeignKey("merchants.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    api_key_id: Mapped[int | None] = mapped_column(
+        ForeignKey("store_api_keys.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -85,6 +130,7 @@ class Invoice(TimestampMixin, Base):
 
     merchant: Mapped[Merchant] = relationship(back_populates="invoices", foreign_keys=[merchant_id])
     card: Mapped[BankCard] = relationship(back_populates="invoices")
+    store: Mapped[Store | None] = relationship(back_populates="invoices", foreign_keys=[store_id])
 
 
 class AmountReservation(TimestampMixin, Base):

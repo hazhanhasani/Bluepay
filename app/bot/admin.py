@@ -29,7 +29,7 @@ from app.bot.presentation import (
 )
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
+from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
@@ -425,6 +425,14 @@ async def admin_merchant_detail(callback: CallbackQuery):
         paid_count = await session.scalar(
             select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "paid")
         ) or 0
+        store_count = await session.scalar(
+            select(func.count(Store.id)).where(Store.merchant_id == merchant.id)
+        ) or 0
+        active_key_count = await session.scalar(
+            select(func.count(StoreApiKey.id))
+            .join(Store, Store.id == StoreApiKey.store_id)
+            .where(Store.merchant_id == merchant.id, StoreApiKey.is_active.is_(True))
+        ) or 0
         default_fee_rial, default_fee_mode = await get_fee_defaults(session)
     fee_source = (
         "همگانی (مطابق پیش‌فرض)"
@@ -450,8 +458,9 @@ async def admin_merchant_detail(callback: CallbackQuery):
             f"🌐 منبع تنظیم: <b>{fee_source}</b>",
             "",
             "<b>وضعیت اتصال</b>",
-            f"🔑 API: <code>{esc(merchant.api_key_prefix or 'ایجاد نشده')}</code>",
-            f"🔔 Callback: <code>{esc(short(merchant.callback_url, 46))}</code>",
+            f"🏪 فروشگاه‌ها: <b>{store_count:,}</b>",
+            f"🔑 کلیدهای API فعال: <b>{active_key_count:,}</b>",
+            f"🔔 Callback عمومی: <code>{esc(short(merchant.callback_url, 46))}</code>",
             f"📲 وبهوک پیامک:\n<code>{esc(merchant_sms_webhook_url(merchant))}</code>",
             f"📚 مستندات:\n<code>{esc(merchant_docs_url(merchant))}</code>",
             "",

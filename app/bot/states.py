@@ -35,3 +35,12 @@ class AdminFeeState(StatesGroup):
 
 class AdminSmsApproveState(StatesGroup):
     invoice_token = State()
+
+
+class StoreCreateState(StatesGroup):
+    name = State()
+    website = State()
+
+
+class StoreCallbackState(StatesGroup):
+    url = State()

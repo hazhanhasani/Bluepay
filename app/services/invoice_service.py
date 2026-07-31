@@ -89,10 +89,14 @@ async def create_invoice(
     base_amount_rial: int,
     description: str | None = None,
     order_id: str | None = None,
+    client_order_id: str | None = None,
     fee_mode: str | None = None,
     card_id: int | None = None,
     callback_url: str | None = None,
+    callback_secret: str | None = None,
     ttl_minutes: int | None = None,
+    store_id: int | None = None,
+    api_key_id: int | None = None,
 ) -> Invoice:
     if base_amount_rial < 10_000:
         raise ValueError("مبلغ فاکتور باید حداقل ۱٬۰۰۰ تومان باشد")
@@ -127,6 +131,7 @@ async def create_invoice(
         merchant_id=locked.id,
         card_id=card.id,
         order_id=order_id[:120],
+        client_order_id=client_order_id[:120] if client_order_id else None,
         description=description,
         base_amount_rial=base_amount_rial,
         fee_amount_rial=fee,
@@ -137,7 +142,9 @@ async def create_invoice(
         status="pending",
         expires_at=expires_at,
         callback_url=callback_url or locked.callback_url,
-        callback_secret=locked.callback_secret,
+        callback_secret=callback_secret or locked.callback_secret,
+        store_id=store_id,
+        api_key_id=api_key_id,
     )
     session.add(invoice)
     await session.flush()
@@ -264,7 +271,7 @@ async def confirm_invoice_paid(
     invoice = await session.scalar(
         select(Invoice)
         .where(Invoice.id == invoice_id)
-        .options(joinedload(Invoice.card), joinedload(Invoice.merchant))
+        .options(joinedload(Invoice.card), joinedload(Invoice.merchant), joinedload(Invoice.store))
         .with_for_update()
     )
     if not invoice or invoice.status != "pending" or invoice.matched_sms_id:
@@ -332,5 +339,5 @@ async def get_invoice_by_token(session: AsyncSession, token: str) -> Invoice | N
     return await session.scalar(
         select(Invoice)
         .where(Invoice.token == token)
-        .options(joinedload(Invoice.card), joinedload(Invoice.merchant))
+        .options(joinedload(Invoice.card), joinedload(Invoice.merchant), joinedload(Invoice.store))
     )

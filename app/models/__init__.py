@@ -1,4 +1,15 @@
-from app.models.entities import AmountReservation, AppSetting, BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
+from app.models.entities import (
+    AmountReservation,
+    AppSetting,
+    BankCard,
+    Invoice,
+    Merchant,
+    SmsTransaction,
+    Store,
+    StoreApiKey,
+    UpdateLog,
+    WalletLedger,
+)
 
 __all__ = [
     "AmountReservation",
@@ -7,6 +18,8 @@ __all__ = [
     "Invoice",
     "Merchant",
     "SmsTransaction",
+    "Store",
+    "StoreApiKey",
     "UpdateLog",
     "WalletLedger",
 ]

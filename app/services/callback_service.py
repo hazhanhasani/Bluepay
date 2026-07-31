@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.core.security import callback_signature
-from app.models import Invoice, Merchant
+from app.models import Invoice, Merchant, Store
 from app.version import APP_VERSION
 
 
@@ -15,7 +15,7 @@ def paid_payload(invoice: Invoice) -> dict:
     return {
         "event": "invoice.paid",
         "payment_id": invoice.token,
-        "order_id": invoice.order_id,
+        "order_id": invoice.client_order_id or invoice.order_id,
         "status": invoice.status,
         "base_amount_rial": invoice.base_amount_rial,
         "fee_amount_rial": invoice.fee_amount_rial,
@@ -24,6 +24,10 @@ def paid_payload(invoice: Invoice) -> dict:
         "payable_amount_rial": invoice.payable_amount_rial,
         "reference_number": invoice.reference_number,
         "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
+        "store_id": invoice.store_id,
+        "store_code": invoice.store.code if invoice.store else None,
+        "store_name": invoice.store.name if invoice.store else None,
+        "api_key_id": invoice.api_key_id,
     }
 
 
@@ -74,3 +78,18 @@ async def send_test_callback(merchant: Merchant) -> tuple[bool, str]:
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     return await _deliver(merchant.callback_url, merchant.callback_secret, payload, "webhook.test", retry=False)
+
+
+async def send_store_test_callback(store: Store) -> tuple[bool, str]:
+    if not store.callback_url or not store.callback_secret:
+        return False, "callback_not_configured"
+    payload = {
+        "event": "webhook.test",
+        "status": "ok",
+        "store_id": store.id,
+        "store_code": store.code,
+        "store_name": store.name,
+        "message": "BluePay store webhook connection test",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return await _deliver(store.callback_url, store.callback_secret, payload, "webhook.test", retry=False)
