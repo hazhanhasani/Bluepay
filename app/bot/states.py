@@ -13,6 +13,8 @@ class ManualInvoiceState(StatesGroup):
     description = State()
     fee_mode = State()
     card = State()
+    confirm = State()
+    processing = State()
 
 
 class AdminWalletAdjustState(StatesGroup):

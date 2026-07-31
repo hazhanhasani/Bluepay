@@ -9,9 +9,21 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.bot.keyboards import api_menu, cards_menu, fee_menu, main_menu
+from app.bot.keyboards import (
+    BANK_LABELS,
+    api_menu,
+    bank_select_menu,
+    cards_menu,
+    fee_menu,
+    flow_cancel_menu,
+    invoice_cards_menu,
+    invoice_confirm_menu,
+    invoice_fee_mode_menu,
+    main_menu,
+    payment_created_menu,
+)
 from app.bot.states import AddCardState, ManualInvoiceState
 from app.core.config import settings
 from app.core.security import encrypt_text
@@ -19,7 +31,12 @@ from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog
 from app.services.callback_service import send_paid_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
-from app.services.invoice_service import confirm_invoice_paid, create_invoice, release_invoice_reservation
+from app.services.invoice_service import (
+    calculate_customer_fee,
+    confirm_invoice_paid,
+    create_invoice,
+    release_invoice_reservation,
+)
 from app.services.merchant_service import credit_wallet, get_or_create_merchant, regenerate_api_key
 from app.services.settings_service import get_setting
 from app.parsers import normalize_bank_code
@@ -27,13 +44,76 @@ from app.parsers import normalize_bank_code
 router = Router()
 
 
+_DIGIT_TRANSLATION = str.maketrans(
+    "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
+    "01234567890123456789",
+)
+
+
 def toman(value_rial: int) -> str:
     return f"{value_rial // 10:,}"
+
+
+def digits_only(value: str | None) -> str:
+    normalized = (value or "").translate(_DIGIT_TRANSLATION)
+    return "".join(ch for ch in normalized if ch.isdigit())
+
+
+def bank_title(code: str) -> str:
+    return BANK_LABELS.get(code, code.replace("_", " ").title())
+
+
+def fee_title(mode: str) -> str:
+    return {
+        "customer": "👤 کامل با مشتری",
+        "split": "🤝 نصف مشتری، نصف پذیرنده",
+        "merchant": "🏪 کامل با پذیرنده",
+    }.get(mode, mode)
 
 
 async def current_merchant(user_id: int) -> Merchant | None:
     async with SessionLocal() as session:
         return await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
+
+
+async def home_view(user_id: int) -> tuple[str, Merchant | None]:
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
+        if not merchant:
+            return "برای ساخت حساب ابتدا /start را بزن.", None
+
+        card_count = int(
+            await session.scalar(
+                select(func.count(BankCard.id)).where(
+                    BankCard.merchant_id == merchant.id,
+                    BankCard.is_active.is_(True),
+                )
+            )
+            or 0
+        )
+        pending_count = int(
+            await session.scalar(
+                select(func.count(Invoice.id)).where(
+                    Invoice.merchant_id == merchant.id,
+                    Invoice.status == "pending",
+                )
+            )
+            or 0
+        )
+
+    status = "🟢 فعال" if merchant.is_active else "🔴 غیرفعال"
+    text = f"""💠 <b>پنل درگاه BluePay</b>
+━━━━━━━━━━━━━━━━
+👤 <b>{html.escape(merchant.name)}</b>
+📡 وضعیت حساب: <b>{status}</b>
+
+💰 موجودی قابل استفاده: <b>{toman(merchant.available_balance_rial)} تومان</b>
+🏦 کارت‌های فعال: <b>{card_count}</b>
+🧾 فاکتورهای در انتظار: <b>{pending_count}</b>
+⚙️ مدل کارمزد: <b>{fee_title(merchant.fee_mode)}</b>
+━━━━━━━━━━━━━━━━
+یکی از سرویس‌های زیر را انتخاب کن 👇"""
+    return text, merchant
 
 
 @router.message(CommandStart())
@@ -45,18 +125,17 @@ async def start(message: Message):
             message.from_user.full_name,
         )
         await session.commit()
-    extra = "\n\n👑 چون اولین کاربر سیستم هستی، مدیر اصلی شدی." if created and merchant.is_admin else ""
-    await message.answer(
-        "سلام! به پنل درگاه واسط خوش آمدی. از منوی زیر کارت بانکی ثبت کن، کیف پول را شارژ کن و فاکتور بساز."
-        + extra,
-        reply_markup=main_menu(merchant.is_admin),
-    )
+
+    text, merchant = await home_view(message.from_user.id)
+    if created and merchant and merchant.is_admin:
+        text += "\n\n👑 <b>مدیریت اصلی سیستم به حساب شما اختصاص یافت.</b>"
+    await message.answer(text, reply_markup=main_menu(bool(merchant and merchant.is_admin)))
 
 
 @router.callback_query(F.data == "home")
 async def home(callback: CallbackQuery):
-    merchant = await current_merchant(callback.from_user.id)
-    await callback.message.edit_text("پنل اصلی درگاه:", reply_markup=main_menu(bool(merchant and merchant.is_admin)))
+    text, merchant = await home_view(callback.from_user.id)
+    await callback.message.edit_text(text, reply_markup=main_menu(bool(merchant and merchant.is_admin)))
     await callback.answer()
 
 
@@ -65,20 +144,42 @@ async def wallet(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
         return await callback.answer("ابتدا /start را بزن", show_alert=True)
-    text = (
-        "💰 <b>کیف پول کارمزد</b>\n\n"
-        f"موجودی کل: <b>{toman(merchant.wallet_balance_rial)} تومان</b>\n"
-        f"رزروشده: {toman(merchant.reserved_balance_rial)} تومان\n"
-        f"قابل استفاده: {toman(merchant.available_balance_rial)} تومان\n"
-        f"کارمزد هر تأیید: {toman(merchant.verification_fee_rial)} تومان"
-    )
+
+    text = f"""💰 <b>کیف پول کارمزد</b>
+━━━━━━━━━━━━━━━━
+💵 موجودی کل
+<b>{toman(merchant.wallet_balance_rial)} تومان</b>
+
+🔒 رزروشده برای فاکتورها
+<b>{toman(merchant.reserved_balance_rial)} تومان</b>
+
+✅ قابل استفاده
+<b>{toman(merchant.available_balance_rial)} تومان</b>
+
+⚙️ هزینه هر تأیید پیامک
+<b>{toman(merchant.verification_fee_rial)} تومان</b>
+━━━━━━━━━━━━━━━━
+کارمزد فقط پس از تأیید قطعی پرداخت از کیف پول کسر می‌شود."""
     await callback.message.edit_text(text, reply_markup=main_menu(merchant.is_admin))
     await callback.answer()
 
 
 @router.callback_query(F.data == "fee")
 async def fee(callback: CallbackQuery):
-    await callback.message.edit_text("نحوه تقسیم کارمزد را انتخاب کن:", reply_markup=fee_menu())
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا /start را بزن", show_alert=True)
+
+    text = f"""⚙️ <b>تقسیم هزینه تأیید</b>
+━━━━━━━━━━━━━━━━
+مشخص کن هزینه درگاه هنگام ساخت فاکتور چگونه تقسیم شود:
+
+👤 <b>مشتری:</b> تمام کارمزد به مبلغ فاکتور افزوده می‌شود.
+🤝 <b>نصف‌نصف:</b> نصف کارمزد به فاکتور افزوده می‌شود.
+🏪 <b>پذیرنده:</b> مبلغ فاکتور بدون افزایش می‌ماند.
+
+انتخاب فعلی: <b>{fee_title(merchant.fee_mode)}</b>"""
+    await callback.message.edit_text(text, reply_markup=fee_menu(merchant.fee_mode))
     await callback.answer()
 
 
@@ -93,46 +194,115 @@ async def set_fee(callback: CallbackQuery):
             return await callback.answer("حساب پیدا نشد", show_alert=True)
         merchant.fee_mode = mode
         await session.commit()
-    labels = {"customer": "کامل با مشتری", "split": "نصف‌نصف", "merchant": "کامل با پذیرنده"}
-    await callback.message.edit_text(f"✅ تنظیم شد: {labels[mode]}", reply_markup=main_menu(merchant.is_admin))
-    await callback.answer()
+
+    await callback.message.edit_text(
+        f"""✅ <b>تنظیم کارمزد ذخیره شد</b>
+━━━━━━━━━━━━━━━━
+مدل جدید: <b>{fee_title(mode)}</b>
+
+این تنظیم به‌صورت پیش‌فرض روی فاکتورهای بعدی اعمال می‌شود.""",
+        reply_markup=main_menu(merchant.is_admin),
+    )
+    await callback.answer("تنظیم شد ✅")
 
 
 @router.callback_query(F.data == "cards")
 async def cards(callback: CallbackQuery):
-    await callback.message.edit_text("مدیریت کارت‌های بانکی:", reply_markup=cards_menu())
+    text = """🏦 <b>مدیریت کارت‌های بانکی</b>
+━━━━━━━━━━━━━━━━
+برای هر فاکتور یک کارت مقصد انتخاب می‌شود. می‌توانی چند کارت از بانک‌های مختلف ثبت کنی."""
+    await callback.message.edit_text(text, reply_markup=cards_menu())
     await callback.answer()
 
 
 @router.callback_query(F.data == "card:add")
 async def add_card_start(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await state.set_state(AddCardState.bank)
-    await callback.message.answer("نام یا کد بانک را بفرست؛ مثال: mellat یا ملت")
+    await callback.message.edit_text(
+        """🏦 <b>افزودن کارت — مرحله ۱ از ۴</b>
+━━━━━━━━━━━━━━━━
+بانک صادرکننده کارت را انتخاب کن:""",
+        reply_markup=bank_select_menu(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("card:bank:"))
+async def add_card_bank_button(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != AddCardState.bank.state:
+        return await callback.answer("فرایند ثبت کارت فعال نیست.", show_alert=True)
+
+    code = callback.data.rsplit(":", 1)[1]
+    if code == "other":
+        await callback.message.edit_text(
+            """🏦 <b>افزودن کارت — مرحله ۱ از ۴</b>
+━━━━━━━━━━━━━━━━
+نام بانک را تایپ کن؛ مثال: آینده یا شهر""",
+            reply_markup=flow_cancel_menu(),
+        )
+        return await callback.answer()
+
+    await state.update_data(bank=code)
+    await state.set_state(AddCardState.card_number)
+    await callback.message.edit_text(
+        f"""💳 <b>افزودن کارت — مرحله ۲ از ۴</b>
+━━━━━━━━━━━━━━━━
+بانک انتخاب‌شده: <b>{bank_title(code)}</b>
+
+شماره ۱۶ رقمی کارت را ارسال کن:""",
+        reply_markup=flow_cancel_menu(),
+    )
     await callback.answer()
 
 
 @router.message(AddCardState.bank)
 async def add_card_bank(message: Message, state: FSMContext):
-    await state.update_data(bank=normalize_bank_code(message.text))
+    code = normalize_bank_code(message.text)
+    await state.update_data(bank=code)
     await state.set_state(AddCardState.card_number)
-    await message.answer("شماره ۱۶ رقمی کارت را بدون فاصله بفرست:")
+    await message.answer(
+        f"""💳 <b>افزودن کارت — مرحله ۲ از ۴</b>
+━━━━━━━━━━━━━━━━
+بانک انتخاب‌شده: <b>{bank_title(code)}</b>
+
+شماره ۱۶ رقمی کارت را ارسال کن:""",
+        reply_markup=flow_cancel_menu(),
+    )
 
 
 @router.message(AddCardState.card_number)
 async def add_card_number(message: Message, state: FSMContext):
-    number = "".join(ch for ch in message.text if ch.isdigit())
+    number = digits_only(message.text)
     if len(number) != 16:
-        return await message.answer("شماره کارت باید دقیقاً ۱۶ رقم باشد.")
+        return await message.answer(
+            "⚠️ شماره کارت باید دقیقاً ۱۶ رقم باشد. دوباره ارسال کن:",
+            reply_markup=flow_cancel_menu(),
+        )
+
     await state.update_data(card_number=number)
     await state.set_state(AddCardState.holder)
-    await message.answer("نام صاحب کارت را بفرست:")
+    await message.answer(
+        f"""👤 <b>افزودن کارت — مرحله ۳ از ۴</b>
+━━━━━━━━━━━━━━━━
+شماره کارت: <code>**** **** **** {number[-4:]}</code>
+
+نام صاحب کارت را ارسال کن:""",
+        reply_markup=flow_cancel_menu(),
+    )
 
 
 @router.message(AddCardState.holder)
 async def add_card_holder(message: Message, state: FSMContext):
     await state.update_data(holder=message.text.strip())
     await state.set_state(AddCardState.source_id)
-    await message.answer("شناسه گوشی/منبع پیامک را بفرست؛ اگر نداری علامت - را بفرست:")
+    await message.answer(
+        """📱 <b>افزودن کارت — مرحله ۴ از ۴</b>
+━━━━━━━━━━━━━━━━
+شناسه گوشی یا منبع پیامک را بفرست.
+اگر فعلاً شناسه‌ای نداری، فقط <code>-</code> ارسال کن:""",
+        reply_markup=flow_cancel_menu(),
+    )
 
 
 @router.message(AddCardState.source_id)
@@ -145,7 +315,12 @@ async def add_card_source(message: Message, state: FSMContext):
         if not merchant or not encryption_key:
             await state.clear()
             return await message.answer("خطای تنظیمات سیستم؛ دوباره تلاش کن.")
-        existing_count = len((await session.scalars(select(BankCard).where(BankCard.merchant_id == merchant.id))).all())
+
+        existing_count = len(
+            (
+                await session.scalars(select(BankCard).where(BankCard.merchant_id == merchant.id))
+            ).all()
+        )
         card = BankCard(
             merchant_id=merchant.id,
             bank_code=data["bank"],
@@ -157,101 +332,353 @@ async def add_card_source(message: Message, state: FSMContext):
         )
         session.add(card)
         await session.commit()
+
     await state.clear()
-    await message.answer(f"✅ کارت ****{data['card_number'][-4:]} ثبت شد.", reply_markup=main_menu(merchant.is_admin))
+    await message.answer(
+        f"""✅ <b>کارت بانکی ثبت شد</b>
+━━━━━━━━━━━━━━━━
+🏦 بانک: <b>{bank_title(data['bank'])}</b>
+💳 شماره کارت: <code>**** **** **** {data['card_number'][-4:]}</code>
+👤 صاحب کارت: <b>{html.escape(data['holder'])}</b>
+📱 منبع پیامک: <b>{html.escape(source_id or 'ثبت نشده')}</b>""",
+        reply_markup=main_menu(merchant.is_admin),
+    )
 
 
 @router.callback_query(F.data == "card:list")
 async def list_cards(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
-        cards = list((await session.scalars(select(BankCard).where(BankCard.merchant_id == merchant.id))).all()) if merchant else []
-    if not cards:
-        text = "هنوز کارتی ثبت نشده است."
+        rows = (
+            await session.scalars(
+                select(BankCard)
+                .where(BankCard.merchant_id == merchant.id)
+                .order_by(BankCard.is_default.desc(), BankCard.id.asc())
+            )
+        ) if merchant else None
+        card_rows = list(rows.all()) if rows else []
+
+    if not card_rows:
+        text = """🏦 <b>کارت‌های بانکی</b>
+━━━━━━━━━━━━━━━━
+هنوز هیچ کارتی ثبت نشده است. با دکمه «افزودن کارت جدید» اولین کارت را ثبت کن."""
     else:
-        text = "🏦 <b>کارت‌های ثبت‌شده</b>\n\n" + "\n".join(
-            f"#{card.id} | {html.escape(card.bank_code)} | ****{card.card_last4} | {'فعال' if card.is_active else 'غیرفعال'}"
-            for card in cards
-        )
+        blocks: list[str] = []
+        for card in card_rows:
+            badges = []
+            if card.is_default:
+                badges.append("⭐ پیش‌فرض")
+            badges.append("🟢 فعال" if card.is_active else "🔴 غیرفعال")
+            blocks.append(
+                f"""<b>💳 کارت #{card.id}</b>  {' • '.join(badges)}
+🏦 {html.escape(bank_title(card.bank_code))}
+🔢 <code>**** **** **** {card.card_last4}</code>
+👤 {html.escape(card.account_holder)}"""
+            )
+        text = "🏦 <b>کارت‌های بانکی من</b>\n━━━━━━━━━━━━━━━━\n\n" + "\n\n────────────\n\n".join(blocks)
+
     await callback.message.edit_text(text, reply_markup=cards_menu())
     await callback.answer()
 
 
-@router.callback_query(F.data == "invoice:new")
+@router.callback_query(F.data == "flow:cancel")
+async def cancel_flow(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    text, merchant = await home_view(callback.from_user.id)
+    await callback.message.edit_text(
+        "❌ <b>عملیات لغو شد</b>\n\n" + text,
+        reply_markup=main_menu(bool(merchant and merchant.is_admin)),
+    )
+    await callback.answer("عملیات لغو شد")
+
+
+@router.callback_query(F.data.in_({"invoice:new", "invoice:restart"}))
 async def invoice_start(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     await state.set_state(ManualInvoiceState.amount)
-    await callback.message.answer("مبلغ فاکتور را به تومان بفرست؛ فقط عدد:")
+    await callback.message.edit_text(
+        """🧾 <b>ساخت فاکتور — مرحله ۱ از ۴</b>
+━━━━━━━━━━━━━━━━
+💵 مبلغ سفارش را به <b>تومان</b> ارسال کن.
+
+مثال: <code>200000</code>""",
+        reply_markup=flow_cancel_menu(),
+    )
     await callback.answer()
 
 
 @router.message(ManualInvoiceState.amount)
 async def invoice_amount(message: Message, state: FSMContext):
-    raw = "".join(ch for ch in message.text if ch.isdigit())
+    raw = digits_only(message.text)
     if not raw or int(raw) < 1000:
-        return await message.answer("مبلغ معتبر و حداقل ۱٬۰۰۰ تومان بفرست.")
-    await state.update_data(amount_toman=int(raw))
+        return await message.answer(
+            "⚠️ مبلغ باید عددی و حداقل ۱٬۰۰۰ تومان باشد. دوباره ارسال کن:",
+            reply_markup=flow_cancel_menu(),
+        )
+
+    amount = int(raw)
+    await state.update_data(amount_toman=amount)
     await state.set_state(ManualInvoiceState.description)
-    await message.answer("عنوان یا توضیح فاکتور را بفرست:")
+    await message.answer(
+        f"""📝 <b>ساخت فاکتور — مرحله ۲ از ۴</b>
+━━━━━━━━━━━━━━━━
+مبلغ سفارش: <b>{amount:,} تومان</b>
+
+عنوان یا توضیح کوتاه فاکتور را ارسال کن:
+مثال: <code>خرید اشتراک یک‌ماهه</code>""",
+        reply_markup=flow_cancel_menu(),
+    )
 
 
 @router.message(ManualInvoiceState.description)
 async def invoice_description(message: Message, state: FSMContext):
-    await state.update_data(description=message.text.strip())
+    description = message.text.strip()[:500]
+    if not description:
+        return await message.answer("عنوان فاکتور نمی‌تواند خالی باشد.", reply_markup=flow_cancel_menu())
+
+    await state.update_data(description=description)
     await state.set_state(ManualInvoiceState.fee_mode)
-    await message.answer("حالت کارمزد را بفرست: customer یا split یا merchant یا default")
+    merchant = await current_merchant(message.from_user.id)
+    if not merchant:
+        await state.clear()
+        return await message.answer("حساب پذیرنده پیدا نشد؛ /start را بزن.")
+
+    await message.answer(
+        """⚙️ <b>ساخت فاکتور — مرحله ۳ از ۴</b>
+━━━━━━━━━━━━━━━━
+نحوه پرداخت کارمزد این فاکتور را انتخاب کن:""",
+        reply_markup=invoice_fee_mode_menu(merchant.fee_mode),
+    )
 
 
 @router.message(ManualInvoiceState.fee_mode)
-async def invoice_fee_mode(message: Message, state: FSMContext):
+async def invoice_fee_mode_text(message: Message, state: FSMContext):
     mode = message.text.strip().lower()
+    merchant = await current_merchant(message.from_user.id)
+    if not merchant:
+        await state.clear()
+        return await message.answer("حساب پذیرنده پیدا نشد.")
     if mode not in {"customer", "split", "merchant", "default"}:
-        return await message.answer("یکی از این مقادیر را بفرست: customer / split / merchant / default")
+        return await message.answer(
+            "از دکمه‌های زیر انتخاب کن:",
+            reply_markup=invoice_fee_mode_menu(merchant.fee_mode),
+        )
     await state.update_data(fee_mode=None if mode == "default" else mode)
+    await show_invoice_cards(message, state, message.from_user.id)
+
+
+async def show_invoice_cards(target: Message, state: FSMContext, user_id: int) -> None:
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
+        cards = list(
+            (
+                await session.scalars(
+                    select(BankCard)
+                    .where(BankCard.merchant_id == merchant.id, BankCard.is_active.is_(True))
+                    .order_by(BankCard.is_default.desc(), BankCard.priority.asc(), BankCard.id.asc())
+                )
+            ).all()
+        ) if merchant else []
+
+    if not cards:
+        await state.clear()
+        await target.answer(
+            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا از بخش «کارت‌های من» یک کارت بانکی ثبت کن.",
+            reply_markup=cards_menu(),
+        )
+        return
+
     await state.set_state(ManualInvoiceState.card)
-    await message.answer("شناسه کارت را بفرست؛ برای انتخاب خودکار 0 را بفرست. شناسه‌ها در بخش فهرست کارت‌ها هستند.")
+    keyboard_data = [(c.id, bank_title(c.bank_code), c.card_last4, c.is_default) for c in cards]
+    await target.answer(
+        """🏦 <b>ساخت فاکتور — مرحله ۴ از ۴</b>
+━━━━━━━━━━━━━━━━
+کارت مقصد را انتخاب کن. «انتخاب هوشمند» کارت پیش‌فرض یا اولویت‌دار را برمی‌گزیند:""",
+        reply_markup=invoice_cards_menu(keyboard_data),
+    )
+
+
+@router.callback_query(F.data.startswith("invoice:fee:"))
+async def invoice_fee_mode_button(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != ManualInvoiceState.fee_mode.state:
+        return await callback.answer("فرایند ساخت فاکتور منقضی شده؛ دوباره شروع کن.", show_alert=True)
+
+    mode = callback.data.rsplit(":", 1)[1]
+    await state.update_data(fee_mode=None if mode == "default" else mode)
+
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        cards = list(
+            (
+                await session.scalars(
+                    select(BankCard)
+                    .where(BankCard.merchant_id == merchant.id, BankCard.is_active.is_(True))
+                    .order_by(BankCard.is_default.desc(), BankCard.priority.asc(), BankCard.id.asc())
+                )
+            ).all()
+        ) if merchant else []
+
+    if not cards:
+        await state.clear()
+        await callback.message.edit_text(
+            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا یک کارت بانکی ثبت کن.",
+            reply_markup=cards_menu(),
+        )
+        return await callback.answer()
+
+    await state.set_state(ManualInvoiceState.card)
+    keyboard_data = [(c.id, bank_title(c.bank_code), c.card_last4, c.is_default) for c in cards]
+    await callback.message.edit_text(
+        """🏦 <b>ساخت فاکتور — مرحله ۴ از ۴</b>
+━━━━━━━━━━━━━━━━
+کارت مقصد را انتخاب کن:""",
+        reply_markup=invoice_cards_menu(keyboard_data),
+    )
+    await callback.answer()
 
 
 @router.message(ManualInvoiceState.card)
-async def invoice_card(message: Message, state: FSMContext):
-    raw = "".join(ch for ch in message.text if ch.isdigit())
+async def invoice_card_text(message: Message, state: FSMContext):
+    raw = digits_only(message.text)
     if not raw:
-        return await message.answer("یک عدد معتبر بفرست.")
+        return await message.answer("کارت را از دکمه‌ها انتخاب کن یا شناسه عددی کارت را بفرست.")
+    await prepare_invoice_preview(message, state, message.from_user.id, int(raw))
+
+
+@router.callback_query(F.data.startswith("invoice:card:"))
+async def invoice_card_button(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != ManualInvoiceState.card.state:
+        return await callback.answer("فرایند ساخت فاکتور منقضی شده؛ دوباره شروع کن.", show_alert=True)
+
+    card_id = int(callback.data.rsplit(":", 1)[1])
+    await prepare_invoice_preview(callback.message, state, callback.from_user.id, card_id, edit=True)
+    await callback.answer()
+
+
+async def prepare_invoice_preview(
+    target: Message,
+    state: FSMContext,
+    user_id: int,
+    requested_card_id: int,
+    *,
+    edit: bool = False,
+) -> None:
     data = await state.get_data()
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
+        if not merchant:
+            await state.clear()
+            return await target.answer("حساب پذیرنده پیدا نشد.")
+
+        stmt = select(BankCard).where(BankCard.merchant_id == merchant.id, BankCard.is_active.is_(True))
+        if requested_card_id:
+            stmt = stmt.where(BankCard.id == requested_card_id)
+        else:
+            stmt = stmt.order_by(BankCard.is_default.desc(), BankCard.priority.asc(), BankCard.id.asc())
+        card = await session.scalar(stmt.limit(1))
+
+    if not card:
+        return await target.answer("کارت انتخاب‌شده معتبر یا فعال نیست.", reply_markup=flow_cancel_menu())
+
+    mode = data.get("fee_mode") or merchant.fee_mode
+    fee_rial = merchant.verification_fee_rial
+    customer_fee_rial = calculate_customer_fee(fee_rial, mode)
+    base_rial = data["amount_toman"] * 10
+    payable_rial = base_rial + customer_fee_rial
+
+    await state.update_data(resolved_fee_mode=mode, selected_card_id=card.id)
+    await state.set_state(ManualInvoiceState.confirm)
+
+    preview = f"""🧾 <b>پیش‌نمایش نهایی فاکتور</b>
+━━━━━━━━━━━━━━━━
+📝 عنوان: <b>{html.escape(data['description'])}</b>
+
+💵 مبلغ سفارش: <b>{toman(base_rial)} تومان</b>
+⚙️ کارمزد تأیید: <b>{toman(fee_rial)} تومان</b>
+👤 سهم مشتری از کارمزد: <b>{toman(customer_fee_rial)} تومان</b>
+💳 مبلغ نهایی پرداخت: <b>{toman(payable_rial)} تومان</b>
+
+🏦 کارت مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
+🤝 مدل کارمزد: <b>{fee_title(mode)}</b>
+⏳ اعتبار لینک: <b>{settings.invoice_ttl_minutes} دقیقه</b>
+━━━━━━━━━━━━━━━━
+در صورت تأیید، کارمزد از موجودی قابل استفاده رزرو می‌شود."""
+
+    if edit:
+        await target.edit_text(preview, reply_markup=invoice_confirm_menu())
+    else:
+        await target.answer(preview, reply_markup=invoice_confirm_menu())
+
+
+@router.callback_query(F.data == "invoice:confirm")
+async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != ManualInvoiceState.confirm.state:
+        return await callback.answer("اطلاعات فاکتور منقضی شده؛ دوباره شروع کن.", show_alert=True)
+
+    data = await state.get_data()
+    await state.set_state(ManualInvoiceState.processing)
     try:
         async with SessionLocal() as session:
-            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
             invoice = await create_invoice(
                 session,
                 merchant,
                 base_amount_rial=data["amount_toman"] * 10,
                 description=data["description"],
-                fee_mode=data["fee_mode"],
-                card_id=None if int(raw) == 0 else int(raw),
+                fee_mode=data["resolved_fee_mode"],
+                card_id=data["selected_card_id"],
             )
+            card = await session.get(BankCard, invoice.card_id)
             await session.commit()
-        await message.answer(
-            "✅ فاکتور ساخته شد\n\n"
-            f"مبلغ نهایی: <b>{toman(invoice.payable_amount_rial)} تومان</b>\n"
-            f"لینک پرداخت:\n{settings.base_url}/pay/{invoice.token}",
-            reply_markup=main_menu(merchant.is_admin),
-        )
-    except Exception as exc:
-        await message.answer(f"❌ ساخت فاکتور ناموفق بود:\n{html.escape(str(exc))}")
-    finally:
+
+        payment_url = f"{settings.base_url}/pay/{invoice.token}"
         await state.clear()
+        await callback.message.edit_text(
+            f"""✅ <b>فاکتور با موفقیت ساخته شد</b>
+━━━━━━━━━━━━━━━━
+🧾 شناسه: <code>{invoice.token}</code>
+📝 عنوان: <b>{html.escape(invoice.description or '-')}</b>
+💳 مبلغ پرداخت: <b>{toman(invoice.payable_amount_rial)} تومان</b>
+🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
+⏳ وضعیت: <b>در انتظار پرداخت</b>
 
-
+🔗 لینک پرداخت:
+{payment_url}""",
+            reply_markup=payment_created_menu(payment_url),
+        )
+        await callback.answer("فاکتور ساخته شد ✅")
+    except Exception as exc:
+        await state.set_state(ManualInvoiceState.confirm)
+        await callback.answer("ساخت فاکتور ناموفق بود", show_alert=True)
+        await callback.message.edit_text(
+            f"""❌ <b>ساخت فاکتور ناموفق بود</b>
+━━━━━━━━━━━━━━━━
+<code>{html.escape(str(exc))}</code>""",
+            reply_markup=invoice_confirm_menu(),
+        )
 @router.callback_query(F.data == "api")
 async def api_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
-    prefix = merchant.api_key_prefix if merchant and merchant.api_key_prefix else "ساخته نشده"
-    callback_secret = merchant.callback_secret if merchant and merchant.callback_secret else "ساخته نشده"
+    if not merchant:
+        return await callback.answer("ابتدا /start را بزن", show_alert=True)
+    prefix = merchant.api_key_prefix or "ساخته نشده"
+    callback_secret = merchant.callback_secret or "ساخته نشده"
+    callback_url = merchant.callback_url or "تنظیم نشده"
     await callback.message.edit_text(
-        "🔑 <b>API پذیرنده</b>\n\n"
-        f"پیشوند کلید فعلی: <code>{prefix}</code>\n"
-        f"Secret امضای Callback: <code>{callback_secret}</code>\n\n"
-        "کلید کامل API فقط هنگام ساخت نمایش داده می‌شود. برای تنظیم آدرس پیش‌فرض از دستور "
-        "<code>/callback https://example.com/callback</code> استفاده کن.",
+        f"""🔑 <b>API پذیرنده</b>
+━━━━━━━━━━━━━━━━
+🪪 پیشوند کلید فعلی
+<code>{html.escape(prefix)}</code>
+
+🔐 Secret امضای Callback
+<code>{html.escape(callback_secret)}</code>
+
+🌐 آدرس Callback پیش‌فرض
+<code>{html.escape(callback_url)}</code>
+━━━━━━━━━━━━━━━━
+کلید کامل API فقط یک‌بار، هنگام ساخت نمایش داده می‌شود.
+برای تنظیم Callback:
+<code>/callback https://example.com/callback</code>""",
         reply_markup=api_menu(),
     )
     await callback.answer()
@@ -273,14 +700,25 @@ async def api_regen(callback: CallbackQuery):
 
 @router.callback_query(F.data == "sms:webhook")
 async def sms_info(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا /start را بزن", show_alert=True)
     async with SessionLocal() as session:
         secret = await get_setting(session, "sms_webhook_secret")
-    await callback.message.answer(
-        "🔗 آدرس دریافت پیامک:\n"
-        f"<code>{settings.base_url}/webhooks/sms</code>\n\n"
-        "هدر لازم:\n"
-        f"<code>X-SMS-Secret: {secret}</code>\n\n"
-        'بدنه JSON: <code>{"sender":"BANK","message":"...","device_id":"phone-1"}</code>'
+    await callback.message.edit_text(
+        f"""🔗 <b>اتصال پیامک بانکی</b>
+━━━━━━━━━━━━━━━━
+🌐 آدرس Webhook
+<code>{settings.base_url}/webhooks/sms</code>
+
+🔐 هدر امنیتی
+<code>X-SMS-Secret: {html.escape(secret or '')}</code>
+
+📦 نمونه بدنه JSON
+<code>{{"sender":"BANK","message":"...","device_id":"phone-1"}}</code>
+━━━━━━━━━━━━━━━━
+این اطلاعات را در برنامه SMS Forwarder گوشی ثبت کن.""",
+        reply_markup=main_menu(merchant.is_admin),
     )
     await callback.answer()
 
