@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "min_version": "0.2.3",
-  "description": "افزودن کد تطبیق مبلغ یکتا برای جلوگیری از تداخل پرداخت‌های هم‌زمان و هم‌مبلغ",
+  "description": "رفع Success کاذب در SMS Forwarder، تشخیص متغیرهای جایگزین‌نشده و پشتیبانی گسترده‌تر از قالب‌های ورودی وبهوک",
   "run_migrations": true
 }

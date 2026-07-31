@@ -782,10 +782,12 @@ async def sms_info(callback: CallbackQuery):
 📤 <b>تنظیم درخواست</b>
 روش را روی <code>POST</code> و نوع Body را روی <code>JSON</code> قرار بده.
 
-📦 <b>بدنه معتبر و آماده کپی</b>
-این مقدار را دقیقاً به‌صورت یک‌خطی داخل Body وارد کن:
+📦 <b>ساخت Body در برنامه</b>
+قالب زیر فقط شکل نهایی را نشان می‌دهد؛ عبارت‌های داخل آکولاد را به‌صورت متن ساده کپی نکن:
 
-<code>{{"device_id":"phone-1","sender":"{{Incoming Number}}","message":"{{Message Body}}"}}</code>
+<code>{{"device_id":"phone-1","sender":"[فیلد پویا: Incoming Number]","message":"[فیلد پویا: Message Body]"}}</code>
+
+⚠️ فیلدهای <b>Incoming Number</b> و <b>Message Body</b> باید از بخش <b>Message Template</b> یا فهرست فیلدهای خود SMS Forwarder درج شوند. تایپ دستی <code>{{Incoming Number}}</code> و <code>{{Message Body}}</code> مقدار واقعی پیامک را ارسال نمی‌کند.
 
 🏦 نیازی به نوشتن نام بانک یا <code>bank_code</code> نیست؛ سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.
 
@@ -793,10 +795,11 @@ async def sms_info(callback: CallbackQuery):
 1️⃣ روش درخواست را <code>POST</code> انتخاب کن.
 2️⃣ آدرس Webhook بالا را بدون تغییر وارد کن.
 3️⃣ در بخش Body گزینه <code>JSON</code> را انتخاب کن.
-4️⃣ بدنه یک‌خطی بالا را کپی کن.
-5️⃣ متغیرهای <code>{{Incoming Number}}</code> و <code>{{Message Body}}</code> را از فهرست متغیرهای خود برنامه انتخاب کن.
-6️⃣ برای گوشی دوم، فقط مقدار <code>phone-1</code> را مثلاً به <code>phone-2</code> تغییر بده.
-7️⃣ یک پیامک آزمایشی بفرست و پاسخ <code>success: true</code> را بررسی کن.
+4️⃣ ابتدا اسکلت JSON را بساز: <code>{{"device_id":"phone-1","sender":"","message":""}}</code>
+5️⃣ مکان‌نما را داخل مقدار <code>sender</code> بگذار و فیلد <b>Incoming Number</b> را از خود برنامه درج کن.
+6️⃣ مکان‌نما را داخل مقدار <code>message</code> بگذار و فیلد <b>Message Body</b> را از خود برنامه درج کن.
+7️⃣ برای گوشی دوم، فقط مقدار <code>phone-1</code> را مثلاً به <code>phone-2</code> تغییر بده.
+8️⃣ یک پیامک آزمایشی بفرست. اگر متغیرها جایگزین نشده باشند، وبهوک از این نسخه به بعد خطای <code>SMS_TEMPLATE_NOT_RESOLVED</code> می‌دهد و دیگر Success کاذب ثبت نمی‌شود.
 
 🏦 پوشش فعلی: <b>{len(BANK_PROFILES)} بانک، مؤسسه و برند بانکی</b>
 ━━━━━━━━━━━━━━━━

@@ -231,17 +231,19 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       <section class="card" id="sms-webhook">
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
-        <h3>بدنه JSON معتبر و آماده درج در SMS Forwarder</h3>
-        <pre><code>{"device_id":"phone-1","sender":"{Incoming Number}","message":"{Message Body}"}</code><button onclick="copyPre(this)">کپی JSON</button></pre>
-        <div class="notice">در بخش Body حتماً گزینه <b>JSON</b> را انتخاب کن. مقدار <code>phone-1</code> نام ثابت این گوشی است؛ برای گوشی دوم از <code>phone-2</code> استفاده کن.</div>
+        <h3>ساخت Body در SMS Forwarder</h3>
+        <pre><code>{"device_id":"phone-1","sender":"","message":""}</code><button onclick="copyPre(this)">کپی اسکلت JSON</button></pre>
+        <div class="notice warning"><b>مهم:</b> عبارت‌های <code>{Incoming Number}</code> و <code>{Message Body}</code> را تایپ یا از سایت کپی نکن. این دو باید به‌صورت فیلد پویا از بخش <b>Message Template</b> یا فهرست متغیرهای خود SMS Forwarder درج شوند.</div>
         <div class="steps-list">
           <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی بساز.</span></div>
           <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را <code>POST</code> انتخاب کن.</span></div>
           <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
-          <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب کن.</span></div>
-          <div><b>۵</b><span>JSON یک‌خطی بالا را کپی کن.</span></div>
-          <div><b>۶</b><span>متغیرهای <code>{Incoming Number}</code> و <code>{Message Body}</code> را از منوی متغیرهای خود اپ انتخاب کن تا مقدار واقعی هر پیامک جایگزین شود.</span></div>
-          <div><b>۷</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
+          <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب و اسکلت JSON بالا را وارد کن.</span></div>
+          <div><b>۵</b><span>داخل مقدار <code>sender</code>، فیلد پویا <b>Incoming Number</b> را از خود برنامه درج کن.</span></div>
+          <div><b>۶</b><span>داخل مقدار <code>message</code>، فیلد پویا <b>Message Body</b> را از خود برنامه درج کن.</span></div>
+          <div><b>۷</b><span>مقدار <code>phone-1</code> نام این گوشی است و برای گوشی‌های دیگر باید متفاوت باشد.</span></div>
+          <div><b>۸</b><span>اگر فیلدها به‌صورت متن ساده ارسال شوند، پاسخ <code>SMS_TEMPLATE_NOT_RESOLVED</code> دریافت می‌کنی و پیامک پردازش نمی‌شود.</span></div>
+          <div><b>۹</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
         </div>
         <details>
           <summary>نمونه JSON برای برنامه‌های دیگر</summary>

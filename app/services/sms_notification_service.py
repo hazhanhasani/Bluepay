@@ -50,3 +50,39 @@ async def send_sms_processing_notice(
             )
     except Exception as exc:
         print(f"sms_notice_error={type(exc).__name__}: {exc}")
+
+
+async def send_invalid_sms_payload_notice(
+    merchant: Merchant,
+    error_code: str,
+    detail: str,
+    preview: str = "",
+) -> None:
+    safe_preview = html.escape((preview or "").strip()[:300])
+    text = (
+        "❌ <b>بدنه وبهوک پیامک معتبر نیست</b>\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"📌 خطا: <code>{html.escape(error_code)}</code>\n"
+        f"📝 توضیح: {html.escape(detail)}"
+    )
+    if safe_preview:
+        text += f"\n\n<blockquote>{safe_preview}</blockquote>"
+    text += (
+        "\n\n⚠️ در SMS Forwarder، فیلدهای Incoming Number و Message Body را "
+        "از منوی Message Template خود برنامه درج کن؛ آن‌ها را به‌صورت متن ساده تایپ نکن."
+    )
+
+    url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                url,
+                json={
+                    "chat_id": merchant.telegram_user_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+            )
+    except Exception as exc:
+        print(f"invalid_sms_payload_notice_error={type(exc).__name__}: {exc}")
