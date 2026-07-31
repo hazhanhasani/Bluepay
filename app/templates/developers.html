@@ -27,6 +27,7 @@
       <a href="#bot-example">اتصال ربات تلگرام</a>
       <a href="#callback">Callback پرداخت</a>
       <a href="#sms-webhook">وبهوک پیامک</a>
+      <a href="#banks">بانک‌های پشتیبانی‌شده</a>
       <a href="#errors">خطاها و وضعیت‌ها</a>
     </aside>
 
@@ -224,7 +225,8 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
         <pre><code>{
   "sender": "Bank Mellat",
   "message": "متن کامل پیامک واریز بانک",
-  "device_id": "phone-1"
+  "device_id": "phone-1",
+  "bank_code": "mellat"
 }</code><button onclick="copyPre(this)">کپی</button></pre>
         <div class="steps-list">
           <div><b>۱</b><span>در برنامه SMS Forwarder یک Rule برای پیامک بانک بساز.</span></div>
@@ -232,8 +234,21 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
           <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
           <div><b>۴</b><span>متن کامل پیامک را در message و نام فرستنده را در sender بفرست.</span></div>
           <div><b>۵</b><span>device_id را مطابق شناسه‌ای بفرست که هنگام ثبت کارت وارد کرده‌ای.</span></div>
+          <div><b>۶</b><span>برای بیشترین دقت، bank_code را از فهرست پایین ارسال کن؛ این فیلد اختیاری اما توصیه‌شده است.</span></div>
         </div>
         <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکن.</div>
+      </section>
+
+
+      <section class="card" id="banks">
+        <div class="section-title"><div class="icon-box">🏦</div><div><h2>بانک‌ها و برندهای پشتیبانی‌شده</h2><p>تشخیص خودکار نام فرستنده + امکان ارسال کد صریح بانک</p></div></div>
+        <div class="notice">برای مشاهده ماشینی فهرست، از <code>GET {{ base_url }}/api/v1/banks</code> استفاده کن. نام فرستنده پیامک ممکن است در گوشی‌های مختلف فرق کند؛ ارسال <code>bank_code</code> دقت را بیشتر می‌کند.</div>
+        <div class="status-table">
+        {% for bank in banks %}
+          <div><code>{{ bank.code }}</code><span>{{ bank.label }}{% if bank.legacy %} — قدیمی/ادغام‌شده{% endif %}</span></div>
+        {% endfor %}
+        </div>
+        <div class="notice warning">پشتیبانی نرم‌افزاری همه بانک‌ها به معنی تضمین یکسان‌بودن تمام قالب‌های پیامک نیست. پیامک ناشناخته یا مبهم برای جلوگیری از تأیید اشتباه به بررسی دستی می‌رود.</div>
       </section>
 
       <section class="card" id="errors">

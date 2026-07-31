@@ -17,6 +17,7 @@ from app.core.security import decrypt_text
 from app.core.urls import validate_public_https_url
 from app.db.session import get_session
 from app.models import Invoice, Merchant
+from app.parsers import BANK_PROFILES, bank_label
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import (
     merchant_docs_token,
@@ -60,7 +61,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.6",
+        "version": "0.2.7",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }
@@ -82,6 +83,7 @@ async def developer_docs(request: Request):
             "sms_webhook_url": f"{settings.base_url}/webhooks/sms/MERCHANT_ID/UNIQUE_TOKEN",
             "api_prefix": "gw_...",
             "callback_url": "https://example.com/bluepay/webhook",
+            "banks": BANK_PROFILES,
         },
     )
 
@@ -107,8 +109,21 @@ async def personalized_developer_docs(
             "sms_webhook_url": merchant_sms_webhook_url(merchant),
             "api_prefix": merchant.api_key_prefix or "هنوز ساخته نشده",
             "callback_url": merchant.callback_url or "هنوز تنظیم نشده",
+            "banks": BANK_PROFILES,
         },
     )
+
+
+@router.get("/api/v1/banks")
+async def api_banks():
+    return {
+        "success": True,
+        "count": len(BANK_PROFILES),
+        "banks": [
+            {"code": profile.code, "name": profile.label, "legacy": profile.legacy}
+            for profile in BANK_PROFILES
+        ],
+    }
 
 
 @router.get("/api/v1/account")
@@ -238,6 +253,7 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
             "card_display": card_display,
             "card_copy": card_copy,
             "toman": rial_to_toman,
+            "bank_name": bank_label(invoice.card.bank_code),
         },
     )
 
@@ -262,6 +278,7 @@ async def merchant_sms_webhook(
         body.message,
         body.device_id,
         merchant_id=merchant.id,
+        bank_hint=body.bank_code,
     )
     await session.commit()
     if invoice:
@@ -289,7 +306,7 @@ async def legacy_sms_webhook(
     if not expected or not hmac.compare_digest(x_sms_secret, expected):
         raise HTTPException(status_code=401, detail="Webhook secret نامعتبر است")
 
-    sms, invoice, result = await ingest_sms(session, body.sender, body.message, body.device_id)
+    sms, invoice, result = await ingest_sms(session, body.sender, body.message, body.device_id, bank_hint=body.bank_code)
     await session.commit()
     if invoice:
         background_tasks.add_task(send_paid_callback, invoice)

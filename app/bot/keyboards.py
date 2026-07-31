@@ -4,24 +4,13 @@ from collections.abc import Iterable
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.parsers import BANK_LABELS
+
 
 FEE_LABELS = {
     "customer": "👤 مشتری",
     "split": "🤝 نصف‌نصف",
     "merchant": "🏪 پذیرنده",
-}
-
-BANK_LABELS = {
-    "mellat": "ملت",
-    "melli": "ملی",
-    "blu": "بلو",
-    "pasargad": "پاسارگاد",
-    "saman": "سامان",
-    "tejarat": "تجارت",
-    "parsian": "پارسیان",
-    "sepah": "سپاه",
-    "refah": "رفاه",
-    "keshavarzi": "کشاورزی",
 }
 
 
@@ -126,19 +115,28 @@ def flow_cancel_menu() -> InlineKeyboardMarkup:
     )
 
 
-def bank_select_menu() -> InlineKeyboardMarkup:
+def bank_select_menu(page: int = 0) -> InlineKeyboardMarkup:
     banks = list(BANK_LABELS.items())
+    page_size = 10
+    total_pages = max(1, (len(banks) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+    visible = banks[page * page_size : (page + 1) * page_size]
+
     rows: list[list[InlineKeyboardButton]] = []
-    for index in range(0, len(banks), 2):
-        row = [
-            InlineKeyboardButton(
-                text=f"🏦 {BANK_LABELS[code]}",
-                callback_data=f"card:bank:{code}",
-            )
-            for code, _ in banks[index : index + 2]
-        ]
-        rows.append(row)
-    rows.append([InlineKeyboardButton(text="✍️ بانک دیگر", callback_data="card:bank:other")])
+    for index in range(0, len(visible), 2):
+        rows.append([
+            InlineKeyboardButton(text=f"🏦 {label}", callback_data=f"card:bank:{code}")
+            for code, label in visible[index : index + 2]
+        ])
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"card:bankpage:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="noop"))
+    if page + 1 < total_pages:
+        nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"card:bankpage:{page+1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="✍️ بانک/برند دیگر", callback_data="card:bank:other")])
     rows.append([InlineKeyboardButton(text="❌ لغو", callback_data="flow:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

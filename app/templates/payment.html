@@ -25,7 +25,7 @@
   </section>
 
   <section class="card bank-card">
-    <small>واریز به کارت {{ invoice.card.bank_code }}</small>
+    <small>واریز به کارت {{ bank_name }}</small>
     <div id="cardNumber" class="card-number">{{ card_display }}</div>
     <div class="holder">به نام: {{ invoice.card.account_holder }}</div>
     {% if card_copy %}<button onclick="copyValue('{{ card_copy }}', this)">کپی شماره کارت</button>{% endif %}

@@ -1,44 +1,17 @@
+from __future__ import annotations
+
 from app.parsers.base import BankSmsParser
+from app.parsers.catalog import BANK_PROFILES, BankProfile
 
 
-class BluParser(BankSmsParser):
-    bank_code = "blu"
-    aliases = ("blubank", "blu", "بلوبانک", "بلو")
+class ProfileBankParser(BankSmsParser):
+    def __init__(self, profile: BankProfile):
+        self.profile = profile
+        self.bank_code = profile.code
+        self.aliases = profile.aliases
 
 
-class MellatParser(BankSmsParser):
-    bank_code = "mellat"
-    aliases = ("bank mellat", "mellat", "ملت")
-
-
-class MelliParser(BankSmsParser):
-    bank_code = "melli"
-    aliases = ("bank melli", "melli", "ملی")
-
-
-class PasargadParser(BankSmsParser):
-    bank_code = "pasargad"
-    aliases = ("pasargad", "پاسارگاد")
-
-
-class SamanParser(BankSmsParser):
-    bank_code = "saman"
-    aliases = ("saman", "سامان")
-
-
-class TejaratParser(BankSmsParser):
-    bank_code = "tejarat"
-    aliases = ("tejarat", "تجارت")
-
-
-class ParsianParser(BankSmsParser):
-    bank_code = "parsian"
-    aliases = ("parsian", "پارسیان")
-
-
-class SepahParser(BankSmsParser):
-    bank_code = "sepah"
-    aliases = ("sepah", "سپاه")
+PARSERS = [ProfileBankParser(profile) for profile in BANK_PROFILES]
 
 
 class GenericParser(BankSmsParser):

@@ -44,7 +44,7 @@ from app.services.invoice_service import (
 )
 from app.services.merchant_service import credit_wallet, get_or_create_merchant, regenerate_api_key
 from app.services.settings_service import get_setting
-from app.parsers import normalize_bank_code
+from app.parsers import BANK_PROFILES, normalize_bank_code
 
 router = Router()
 
@@ -65,7 +65,8 @@ def digits_only(value: str | None) -> str:
 
 
 def bank_title(code: str) -> str:
-    return BANK_LABELS.get(code, code.replace("_", " ").title())
+    normalized = normalize_bank_code(code)
+    return BANK_LABELS.get(normalized, normalized.replace("_", " ").title())
 
 
 def fee_title(mode: str) -> str:
@@ -233,6 +234,23 @@ async def add_card_start(callback: CallbackQuery, state: FSMContext):
 بانک صادرکننده کارت را انتخاب کن:""",
         reply_markup=bank_select_menu(),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("card:bankpage:"))
+async def add_card_bank_page(callback: CallbackQuery, state: FSMContext):
+    if await state.get_state() != AddCardState.bank.state:
+        return await callback.answer("فرایند ثبت کارت فعال نیست.", show_alert=True)
+    try:
+        page = int(callback.data.rsplit(":", 1)[1])
+    except (TypeError, ValueError):
+        page = 0
+    await callback.message.edit_reply_markup(reply_markup=bank_select_menu(page))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def noop(callback: CallbackQuery):
     await callback.answer()
 
 
@@ -763,14 +781,16 @@ async def sms_info(callback: CallbackQuery):
 <code>POST</code> با <code>Content-Type: application/json</code>
 
 📦 بدنه نمونه
-<code>{{"sender":"Bank Mellat","message":"متن کامل پیامک بانک","device_id":"phone-1"}}</code>
+<code>{{"sender":"Bank Mellat","message":"متن کامل پیامک بانک","device_id":"phone-1","bank_code":"mellat"}}</code>
 
 <b>راهنمای اتصال در SMS Forwarder</b>
 1️⃣ نوع درخواست را POST انتخاب کن.
 2️⃣ آدرس بالا را بدون تغییر وارد کن.
 3️⃣ بدنه را روی JSON بگذار.
-4️⃣ sender، message و device_id را ارسال کن.
+4️⃣ sender، message و device_id را ارسال کن. بهتر است bank_code را هم مطابق مستندات بفرستی.
 5️⃣ یک پیامک آزمایشی بفرست و پاسخ success را بررسی کن.
+
+🏦 پوشش فعلی: <b>{len(BANK_PROFILES)} بانک، مؤسسه و برند بانکی</b>
 ━━━━━━━━━━━━━━━━
 ⚠️ این URL محرمانه است؛ آن را در اختیار شخص دیگری قرار نده.""",
         reply_markup=sms_webhook_menu(docs_url),

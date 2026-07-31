@@ -1,50 +1,34 @@
 from __future__ import annotations
 
 from app.parsers.base import ParsedSms
-from app.parsers.banks import (
-    BluParser,
-    GenericParser,
-    MellatParser,
-    MelliParser,
-    ParsianParser,
-    PasargadParser,
-    SamanParser,
-    SepahParser,
-    TejaratParser,
-)
+from app.parsers.banks import GenericParser, PARSERS
+from app.parsers.catalog import BANK_CODE_ALIASES, BANK_LABELS, bank_label, normalize_bank_code
 
-PARSERS = [
-    BluParser(),
-    MellatParser(),
-    MelliParser(),
-    PasargadParser(),
-    SamanParser(),
-    TejaratParser(),
-    ParsianParser(),
-    SepahParser(),
-]
 GENERIC = GenericParser()
+PARSER_BY_CODE = {parser.bank_code: parser for parser in PARSERS}
 
 
-def parse_bank_sms(sender: str, message: str) -> ParsedSms:
+def parse_bank_sms(sender: str, message: str, bank_hint: str | None = None) -> ParsedSms:
+    if bank_hint:
+        code = normalize_bank_code(bank_hint)
+        parser = PARSER_BY_CODE.get(code)
+        if parser:
+            parsed = parser.parse(sender, message)
+            # Hint ارسالی از Rule اختصاصی گوشی، برای تشخیص بانک سیگنال معتبری است.
+            parsed.bank_code = code
+            parsed.confidence = min(100, parsed.confidence + 15)
+            return parsed
+
     for parser in PARSERS:
         if parser.matches(sender, message):
             return parser.parse(sender, message)
     return GENERIC.parse(sender, message)
 
 
-BANK_CODE_ALIASES = {
-    "blu": "blu", "blubank": "blu", "بلو": "blu", "بلوبانک": "blu",
-    "mellat": "mellat", "ملت": "mellat",
-    "melli": "melli", "ملی": "melli",
-    "pasargad": "pasargad", "پاسارگاد": "pasargad",
-    "saman": "saman", "سامان": "saman",
-    "tejarat": "tejarat", "تجارت": "tejarat",
-    "parsian": "parsian", "پارسیان": "parsian",
-    "sepah": "sepah", "سپاه": "sepah",
-}
-
-
-def normalize_bank_code(value: str) -> str:
-    normalized = value.strip().lower().replace("بانک", "").strip()
-    return BANK_CODE_ALIASES.get(normalized, normalized)
+__all__ = [
+    "BANK_CODE_ALIASES",
+    "BANK_LABELS",
+    "bank_label",
+    "normalize_bank_code",
+    "parse_bank_sms",
+]

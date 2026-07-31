@@ -24,13 +24,14 @@ async def ingest_sms(
     message: str,
     device_id: str | None,
     merchant_id: int | None = None,
+    bank_hint: str | None = None,
 ) -> tuple[SmsTransaction, Invoice | None, str]:
     fingerprint = sms_fingerprint(sender, message, device_id, merchant_id)
     existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
     if existing:
         return existing, None, "duplicate"
 
-    parsed = parse_bank_sms(sender, message)
+    parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
     sms = SmsTransaction(
         sender=sender[:120],
         device_id=(device_id or None),
