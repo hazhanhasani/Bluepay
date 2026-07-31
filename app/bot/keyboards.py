@@ -8,56 +8,56 @@ from app.parsers import BANK_LABELS
 
 
 FEE_LABELS = {
-    "customer": "👤 مشتری",
-    "split": "🤝 نصف‌نصف",
-    "merchant": "🏪 پذیرنده",
+    "customer": "مشتری",
+    "split": "تقسیم مساوی",
+    "merchant": "پذیرنده",
 }
 
 
 def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="🧾  ساخت فاکتور جدید", callback_data="invoice:new")],
+        [InlineKeyboardButton(text="🧾 ایجاد فاکتور", callback_data="invoice:new")],
         [
-            InlineKeyboardButton(text="💰  کیف پول", callback_data="wallet"),
-            InlineKeyboardButton(text="🏦  کارت‌های من", callback_data="cards"),
+            InlineKeyboardButton(text="💰 کیف پول", callback_data="wallet"),
+            InlineKeyboardButton(text="🏦 کارت‌های بانکی", callback_data="cards"),
         ],
         [
-            InlineKeyboardButton(text="🔌  آموزش و اتصال", callback_data="connect"),
-            InlineKeyboardButton(text="⚙️  تنظیم کارمزد", callback_data="fee"),
+            InlineKeyboardButton(text="🔌 اتصال و مستندات", callback_data="connect"),
+            InlineKeyboardButton(text="⚙️ تنظیمات کارمزد", callback_data="fee"),
         ],
     ]
     if is_admin:
-        rows.append([InlineKeyboardButton(text="👑  مرکز مدیریت", callback_data="admin:panel")])
+        rows.append([InlineKeyboardButton(text="👑 مدیریت سامانه", callback_data="admin:panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📘 بازکردن مستندات آنلاین", url=docs_url)],
+            [InlineKeyboardButton(text="📘 مشاهده مستندات", url=docs_url)],
             [
-                InlineKeyboardButton(text="🔑 کلید API", callback_data="api"),
-                InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
+                InlineKeyboardButton(text="🔑 مدیریت API", callback_data="api"),
+                InlineKeyboardButton(text="📲 وبهوک پیامک بانکی", callback_data="sms:webhook"),
             ],
             [InlineKeyboardButton(text="🔔 وبهوک نتیجه پرداخت", callback_data="callback:panel")],
-            [InlineKeyboardButton(text="🧪 تست اتصال Callback", callback_data="callback:test")],
-            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text="🧪 آزمایش اتصال Callback", callback_data="callback:test")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="home")],
         ]
     )
 
 
 def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="✏️ ثبت یا تغییر آدرس", callback_data="callback:set")],
+        [InlineKeyboardButton(text="✏️ ثبت یا ویرایش آدرس", callback_data="callback:set")],
     ]
     if configured:
-        rows.append([InlineKeyboardButton(text="🧪 ارسال تست", callback_data="callback:test")])
-        rows.append([InlineKeyboardButton(text="🗑 حذف آدرس Callback", callback_data="callback:remove")])
+        rows.append([InlineKeyboardButton(text="🧪 ارسال درخواست آزمایشی", callback_data="callback:test")])
+        rows.append([InlineKeyboardButton(text="🗑 حذف آدرس", callback_data="callback:remove")])
     rows.extend(
         [
-            [InlineKeyboardButton(text="🔄 ساخت Secret جدید", callback_data="callback:secret")],
-            [InlineKeyboardButton(text="📘 راهنمای اعتبارسنجی امضا", url=docs_url + "#callback")],
-            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
+            [InlineKeyboardButton(text="🔄 بازنشانی کلید امضا", callback_data="callback:secret")],
+            [InlineKeyboardButton(text="📘 راهنمای بررسی امضا", url=docs_url + "#callback")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="connect")],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -66,8 +66,8 @@ def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
 def sms_webhook_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📘 آموزش اتصال SMS Forwarder", url=docs_url + "#sms-webhook")],
-            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
+            [InlineKeyboardButton(text="📘 راهنمای SMS Forwarder", url=docs_url + "#sms-webhook")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="connect")],
         ]
     )
 
@@ -79,11 +79,11 @@ def fee_menu(selected: str | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=label("customer", "👤 کامل با مشتری"), callback_data="fee:customer"),
-                InlineKeyboardButton(text=label("split", "🤝 نصف‌نصف"), callback_data="fee:split"),
+                InlineKeyboardButton(text=label("customer", "👤 مشتری پرداخت می‌کند"), callback_data="fee:customer"),
+                InlineKeyboardButton(text=label("split", "🤝 تقسیم مساوی"), callback_data="fee:split"),
             ],
-            [InlineKeyboardButton(text=label("merchant", "🏪 کامل با پذیرنده"), callback_data="fee:merchant")],
-            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text=label("merchant", "🏪 پذیرنده پرداخت می‌کند"), callback_data="fee:merchant")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="home")],
         ]
     )
 
@@ -91,9 +91,9 @@ def fee_menu(selected: str | None = None) -> InlineKeyboardMarkup:
 def cards_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="➕ افزودن کارت جدید", callback_data="card:add")],
-            [InlineKeyboardButton(text="📋 مشاهده کارت‌های ثبت‌شده", callback_data="card:list")],
-            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text="➕ ثبت کارت جدید", callback_data="card:add")],
+            [InlineKeyboardButton(text="📋 فهرست کارت‌ها", callback_data="card:list")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="home")],
         ]
     )
 
@@ -101,17 +101,17 @@ def cards_menu() -> InlineKeyboardMarkup:
 def api_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 ساخت یا تعویض API Key", callback_data="api:regen")],
-            [InlineKeyboardButton(text="📘 مستندات API", url=docs_url + "#api")],
+            [InlineKeyboardButton(text="🔄 ایجاد کلید API جدید", callback_data="api:regen")],
+            [InlineKeyboardButton(text="📘 مستندات توسعه‌دهندگان", url=docs_url + "#api")],
             [InlineKeyboardButton(text="🔔 تنظیم Callback", callback_data="callback:panel")],
-            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="connect")],
         ]
     )
 
 
 def flow_cancel_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ لغو عملیات", callback_data="flow:cancel")]]
+        inline_keyboard=[[InlineKeyboardButton(text="✖️ انصراف", callback_data="flow:cancel")]]
     )
 
 
@@ -136,8 +136,8 @@ def bank_select_menu(page: int = 0) -> InlineKeyboardMarkup:
     if page + 1 < total_pages:
         nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"card:bankpage:{page+1}"))
     rows.append(nav)
-    rows.append([InlineKeyboardButton(text="✍️ بانک/برند دیگر", callback_data="card:bank:other")])
-    rows.append([InlineKeyboardButton(text="❌ لغو", callback_data="flow:cancel")])
+    rows.append([InlineKeyboardButton(text="✍️ بانک یا برند دیگر", callback_data="card:bank:other")])
+    rows.append([InlineKeyboardButton(text="✖️ انصراف", callback_data="flow:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -146,24 +146,24 @@ def invoice_fee_mode_menu(default_mode: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="👤 مشتری پرداخت کند", callback_data="invoice:fee:customer"),
-                InlineKeyboardButton(text="🤝 نصف‌نصف", callback_data="invoice:fee:split"),
+                InlineKeyboardButton(text="👤 پرداخت توسط مشتری", callback_data="invoice:fee:customer"),
+                InlineKeyboardButton(text="🤝 تقسیم مساوی", callback_data="invoice:fee:split"),
             ],
-            [InlineKeyboardButton(text="🏪 پذیرنده پرداخت کند", callback_data="invoice:fee:merchant")],
+            [InlineKeyboardButton(text="🏪 پرداخت توسط پذیرنده", callback_data="invoice:fee:merchant")],
             [
                 InlineKeyboardButton(
                     text=f"⚙️ پیش‌فرض حساب: {default_label}",
                     callback_data="invoice:fee:default",
                 )
             ],
-            [InlineKeyboardButton(text="❌ لغو فاکتور", callback_data="flow:cancel")],
+            [InlineKeyboardButton(text="✖️ انصراف از فاکتور", callback_data="flow:cancel")],
         ]
     )
 
 
 def invoice_cards_menu(cards: Iterable[tuple[int, str, str, bool]]) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="✨ انتخاب هوشمند کارت", callback_data="invoice:card:0")]
+        [InlineKeyboardButton(text="✨ انتخاب خودکار کارت", callback_data="invoice:card:0")]
     ]
     for card_id, bank_label, last4, is_default in cards:
         star = "⭐ " if is_default else "💳 "
@@ -175,17 +175,17 @@ def invoice_cards_menu(cards: Iterable[tuple[int, str, str, bool]]) -> InlineKey
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="❌ لغو فاکتور", callback_data="flow:cancel")])
+    rows.append([InlineKeyboardButton(text="✖️ انصراف از فاکتور", callback_data="flow:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def invoice_confirm_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ تأیید و ساخت فاکتور", callback_data="invoice:confirm")],
+            [InlineKeyboardButton(text="✅ تأیید و ایجاد فاکتور", callback_data="invoice:confirm")],
             [
-                InlineKeyboardButton(text="🔄 شروع دوباره", callback_data="invoice:restart"),
-                InlineKeyboardButton(text="❌ لغو", callback_data="flow:cancel"),
+                InlineKeyboardButton(text="🔄 شروع مجدد", callback_data="invoice:restart"),
+                InlineKeyboardButton(text="✖️ انصراف", callback_data="flow:cancel"),
             ],
         ]
     )
@@ -194,9 +194,9 @@ def invoice_confirm_menu() -> InlineKeyboardMarkup:
 def payment_created_menu(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 باز کردن صفحه پرداخت", url=payment_url)],
-            [InlineKeyboardButton(text="🧾 ساخت فاکتور دیگر", callback_data="invoice:new")],
-            [InlineKeyboardButton(text="🏠 بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text="💳 مشاهده صفحه پرداخت", url=payment_url)],
+            [InlineKeyboardButton(text="🧾 ایجاد فاکتور جدید", callback_data="invoice:new")],
+            [InlineKeyboardButton(text="🏠 پنل اصلی", callback_data="home")],
         ]
     )
 
@@ -210,16 +210,16 @@ def admin_menu() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🧾 فاکتورها", callback_data="admin:invoices"),
-                InlineKeyboardButton(text="🔎 بررسی پیامک", callback_data="admin:reviews"),
+                InlineKeyboardButton(text="🔎 بررسی پیامک‌ها", callback_data="admin:reviews"),
             ],
             [
-                InlineKeyboardButton(text="🏦 همه کارت‌ها", callback_data="admin:cards"),
-                InlineKeyboardButton(text="💳 گردش کیف پول", callback_data="admin:ledger"),
+                InlineKeyboardButton(text="🏦 کارت‌های ثبت‌شده", callback_data="admin:cards"),
+                InlineKeyboardButton(text="💳 گردش کیف پول‌ها", callback_data="admin:ledger"),
             ],
             [
-                InlineKeyboardButton(text="🖥 وضعیت سیستم", callback_data="admin:system"),
-                InlineKeyboardButton(text="📦 آپدیت سیستم", callback_data="admin:update"),
+                InlineKeyboardButton(text="🖥 وضعیت سامانه", callback_data="admin:system"),
+                InlineKeyboardButton(text="📦 انتشار نسخه جدید", callback_data="admin:update"),
             ],
-            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text="↩️ بازگشت", callback_data="home")],
         ]
     )

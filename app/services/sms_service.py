@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import re
+import unicodedata
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +16,50 @@ from app.parsers import normalize_bank_code, parse_bank_sms
 from app.services.invoice_service import confirm_invoice_paid
 
 
-def sms_fingerprint(sender: str, message: str, device_id: str | None, merchant_id: int | None = None) -> str:
+def _normalize_sms_text(message: str) -> str:
+    """Create a stable representation of the same bank SMS.
+
+    SMS Forwarder may deliver the same message twice with a different sender label,
+    extra whitespace, Persian/Arabic digits, or an added ``From:`` line.  Those
+    transport differences must not create a second payment attempt.
+    """
+    text = unicodedata.normalize("NFKC", message or "")
+    text = text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    text = text.replace("ي", "ی").replace("ك", "ک").replace("\u200c", " ")
+    lines = [line.strip() for line in text.replace("\r", "\n").split("\n") if line.strip()]
+    if lines and re.match(r"^(?:from|sender)\s*[:：]", lines[0], flags=re.IGNORECASE):
+        lines = lines[1:]
+    text = " ".join(lines)
+    text = re.sub(r"\s+", " ", text).strip().casefold()
+    return text
+
+
+def sms_fingerprint(
+    message: str,
+    merchant_id: int | None = None,
+    bank_code: str | None = None,
+    amount_rial: int | None = None,
+) -> str:
+    """Canonical idempotency key for an incoming transaction message.
+
+    Sender and device id are intentionally excluded: Android can expose the same
+    bank sender with different labels for SMS/RCS, and two forwarding filters can
+    submit the same message.  Merchant, normalized bank, exact amount and the
+    normalized message body are sufficient to identify the same delivery.
+    """
+    raw = "\n".join(
+        [
+            str(merchant_id or 0),
+            normalize_bank_code(bank_code or "generic"),
+            str(amount_rial or 0),
+            _normalize_sms_text(message),
+        ]
+    )
+    return sha256(raw.encode("utf-8")).hexdigest()
+
+
+def legacy_sms_fingerprint(sender: str, message: str, device_id: str | None, merchant_id: int | None = None) -> str:
+    """Fingerprint used by versions <= 0.3.4, kept for seamless retries."""
     raw = f"{merchant_id or 0}\n{sender}\n{device_id or ''}\n{message.strip()}"
     return sha256(raw.encode("utf-8")).hexdigest()
 
@@ -41,13 +86,57 @@ async def ingest_sms(
     merchant_id: int | None = None,
     bank_hint: str | None = None,
 ) -> tuple[SmsTransaction, Invoice | None, SmsIngestDiagnostic]:
-    fingerprint = sms_fingerprint(sender, message, device_id, merchant_id)
-    existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
+    parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
+    fingerprint = sms_fingerprint(
+        message,
+        merchant_id=merchant_id,
+        bank_code=parsed.bank_code,
+        amount_rial=parsed.amount_rial,
+    )
+    old_fingerprint = legacy_sms_fingerprint(sender, message, device_id, merchant_id)
+    existing = await session.scalar(
+        select(SmsTransaction).where(SmsTransaction.fingerprint.in_([fingerprint, old_fingerprint]))
+    )
+
+    # Compatibility fallback: a duplicate can arrive with another sender label
+    # (for example SMS vs RCS). Rows written by <=0.3.4 used sender in their
+    # fingerprint, so compare recent matched messages by canonical content too.
+    if not existing and merchant_id is not None and parsed.amount_rial:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+        recent = list(
+            (
+                await session.scalars(
+                    select(SmsTransaction)
+                    .join(Invoice, SmsTransaction.matched_invoice_id == Invoice.id)
+                    .where(
+                        Invoice.merchant_id == merchant_id,
+                        SmsTransaction.status == "matched",
+                        SmsTransaction.amount_rial == parsed.amount_rial,
+                        SmsTransaction.created_at >= recent_cutoff,
+                    )
+                    .order_by(SmsTransaction.id.desc())
+                    .limit(30)
+                )
+            ).all()
+        )
+        for candidate in recent:
+            candidate_key = sms_fingerprint(
+                candidate.raw_message,
+                merchant_id=merchant_id,
+                bank_code=candidate.bank_code,
+                amount_rial=candidate.amount_rial,
+            )
+            if candidate_key == fingerprint:
+                existing = candidate
+                break
+
     previous_status = existing.status if existing else None
     if existing and (existing.status == "matched" or existing.matched_invoice_id):
-        return existing, None, SmsIngestDiagnostic("duplicate", "این پیامک قبلاً مصرف و به فاکتور متصل شده است", notify=False)
-
-    parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
+        return existing, None, SmsIngestDiagnostic(
+            "duplicate",
+            "این تراکنش قبلاً تأیید شده است؛ ارسال تکراری بدون اعلان و بدون کسر مجدد نادیده گرفته شد",
+            notify=False,
+        )
     if existing:
         # پیامک‌های قبلی unmatched/review با Retry دوباره پردازش می‌شوند.
         sms = existing
@@ -60,6 +149,7 @@ async def ingest_sms(
         sms.transaction_at = parsed.transaction_at
         sms.reference_number = parsed.reference_number
         sms.parse_confidence = parsed.confidence
+        sms.fingerprint = fingerprint
         sms.status = "received"
     else:
         sms = SmsTransaction(

@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 
 from app.bot.keyboards import admin_menu, main_menu
 from app.bot.states import AdminFeeState, AdminSmsApproveState, AdminWalletAdjustState
+from app.bot.presentation import fee_mode_label, invoice_status_label, sms_result_label
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
@@ -46,7 +47,7 @@ async def get_admin(user_id: int) -> Merchant | None:
 async def require_admin_callback(callback: CallbackQuery) -> Merchant | None:
     admin = await get_admin(callback.from_user.id)
     if not admin:
-        await callback.answer("این بخش فقط برای مدیر است.", show_alert=True)
+        await callback.answer("دسترسی به این بخش فقط برای مدیر سامانه امکان‌پذیر است.", show_alert=True)
         return None
     return admin
 
@@ -54,7 +55,7 @@ async def require_admin_callback(callback: CallbackQuery) -> Merchant | None:
 async def require_admin_message(message: Message) -> Merchant | None:
     admin = await get_admin(message.from_user.id)
     if not admin:
-        await message.answer("این بخش فقط برای مدیر است.")
+        await message.answer("دسترسی به این بخش فقط برای مدیر سامانه امکان‌پذیر است.")
         return None
     return admin
 
@@ -82,7 +83,7 @@ def merchant_detail_keyboard(merchant: Merchant, page: int, self_id: int) -> Inl
 
 def invoices_keyboard(invoices: list[Invoice], back_data: str = "admin:panel") -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=f"#{item.id} • {item.status} • {toman(item.payable_amount_rial)} ت", callback_data=f"admin:invoice:{item.id}")]
+        [InlineKeyboardButton(text=f"#{item.id} • {invoice_status_label(item.status)} • {toman(item.payable_amount_rial)} ت", callback_data=f"admin:invoice:{item.id}")]
         for item in invoices
     ]
     rows.append([InlineKeyboardButton(text="↩️ بازگشت", callback_data=back_data)])
@@ -93,7 +94,7 @@ def invoices_keyboard(invoices: list[Invoice], back_data: str = "admin:panel") -
 async def admin_command(message: Message):
     if not await require_admin_message(message):
         return
-    await message.answer("👑 <b>بخش مدیریت درگاه</b>\n\nیکی از بخش‌های زیر را انتخاب کن:", reply_markup=admin_menu())
+    await message.answer("👑 <b>مدیریت سامانه BluePay</b>\n━━━━━━━━━━━━━━━━\nلطفاً یکی از بخش‌های زیر را انتخاب کنید.", reply_markup=admin_menu())
 
 
 @router.callback_query(F.data == "admin:panel")
@@ -101,7 +102,7 @@ async def admin_panel(callback: CallbackQuery):
     if not await require_admin_callback(callback):
         return
     await callback.message.edit_text(
-        "👑 <b>بخش مدیریت درگاه</b>\n\nمدیریت پذیرندگان، کیف پول‌ها، فاکتورها، پیامک‌ها و وضعیت سیستم از این بخش انجام می‌شود.",
+        "👑 <b>مدیریت سامانه BluePay</b>\n━━━━━━━━━━━━━━━━\nمدیریت پذیرندگان، کیف پول‌ها، فاکتورها، پیامک‌های بانکی و وضعیت سامانه از این بخش انجام می‌شود.",
         reply_markup=admin_menu(),
     )
     await callback.answer()
@@ -127,7 +128,7 @@ async def admin_dashboard(callback: CallbackQuery):
             select(func.coalesce(func.sum(Invoice.payable_amount_rial), 0)).where(Invoice.status == "paid")
         ) or 0
     text = (
-        "📊 <b>داشبورد مدیریت</b>\n\n"
+        "📊 <b>داشبورد مدیریتی</b>\n━━━━━━━━━━━━━━━━\n"
         f"👥 پذیرندگان: <b>{merchants:,}</b> (فعال: {active_merchants:,})\n"
         f"🏦 کارت‌های ثبت‌شده: <b>{cards:,}</b>\n"
         f"🧾 کل فاکتورها: <b>{invoices:,}</b>\n"
@@ -203,7 +204,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
             select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "paid")
         ) or 0
     text = (
-        "👤 <b>جزئیات پذیرنده</b>\n\n"
+        "👤 <b>مشخصات پذیرنده</b>\n━━━━━━━━━━━━━━━━\n"
         f"شناسه داخلی: <code>{merchant.id}</code>\n"
         f"Telegram ID: <code>{merchant.telegram_user_id}</code>\n"
         f"نام: {html.escape(merchant.name)}\n"
@@ -213,7 +214,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
         f"رزروشده: {toman(merchant.reserved_balance_rial)} تومان\n"
         f"قابل استفاده: {toman(merchant.available_balance_rial)} تومان\n"
         f"کارمزد هر تأیید: {toman(merchant.verification_fee_rial)} تومان\n"
-        f"مدل کارمزد: <code>{merchant.fee_mode}</code>\n"
+        f"مدل کارمزد: <b>{html.escape(fee_mode_label(merchant.fee_mode))}</b>\n"
         f"API: <code>{html.escape(merchant.api_key_prefix or 'ساخته نشده')}</code>\n"
         f"Callback: <code>{html.escape(short(merchant.callback_url, 42))}</code>\n\n"
         f"وبهوک پیامک:\n<code>{html.escape(merchant_sms_webhook_url(merchant))}</code>\n\n"
@@ -237,7 +238,7 @@ async def admin_toggle_merchant(callback: CallbackQuery):
         if not merchant:
             return await callback.answer("پذیرنده پیدا نشد.", show_alert=True)
         if merchant.telegram_user_id == callback.from_user.id:
-            return await callback.answer("نمی‌توانی حساب مدیر فعلی را غیرفعال کنی.", show_alert=True)
+            return await callback.answer("حساب مدیر اصلی سامانه قابل غیرفعال‌سازی نیست.", show_alert=True)
         merchant.is_active = not merchant.is_active
         await session.commit()
     status = "فعال" if merchant.is_active else "غیرفعال"
@@ -260,7 +261,7 @@ async def start_wallet_adjust(callback: CallbackQuery, state: FSMContext, action
     await state.set_state(AdminWalletAdjustState.amount)
     await state.update_data(merchant_id=int(merchant_id), page=int(page), action=action)
     label = "شارژ" if action == "credit" else "کسر"
-    await callback.message.answer(f"مبلغ {label} کیف پول را به تومان و فقط به‌صورت عدد بفرست:")
+    await callback.message.answer(f"مبلغ موردنظر برای {label} کیف پول را به تومان و فقط به‌صورت عدد وارد کنید:")
     await callback.answer()
 
 
@@ -282,7 +283,7 @@ async def admin_wallet_adjust_amount(message: Message, state: FSMContext):
         return
     raw = "".join(ch for ch in (message.text or "") if ch.isdigit())
     if not raw or int(raw) <= 0:
-        return await message.answer("مبلغ معتبر و بیشتر از صفر بفرست.")
+        return await message.answer("مبلغ باید عددی و بیشتر از صفر باشد.")
     amount_rial = int(raw) * 10
     data = await state.get_data()
     async with SessionLocal() as session:
@@ -292,7 +293,7 @@ async def admin_wallet_adjust_amount(message: Message, state: FSMContext):
             return await message.answer("پذیرنده پیدا نشد.")
         signed = amount_rial if data["action"] == "credit" else -amount_rial
         if signed < 0 and merchant.wallet_balance_rial + signed < merchant.reserved_balance_rial:
-            return await message.answer("این کسر باعث می‌شود موجودی از مبلغ رزروشده کمتر شود؛ مبلغ کمتری وارد کن.")
+            return await message.answer("این کسر باعث می‌شود موجودی از مبلغ رزروشده کمتر شود؛ مبلغ کمتری وارد کنید.")
         merchant.wallet_balance_rial += signed
         session.add(
             WalletLedger(
@@ -325,7 +326,7 @@ async def admin_fee_start(callback: CallbackQuery, state: FSMContext):
     _, _, merchant_id, page = callback.data.split(":")
     await state.set_state(AdminFeeState.amount)
     await state.update_data(merchant_id=int(merchant_id), page=int(page))
-    await callback.message.answer("کارمزد هر تأیید را به تومان و فقط به‌صورت عدد بفرست:")
+    await callback.message.answer("مبلغ کارمزد هر تأیید را به تومان و فقط به‌صورت عدد وارد کنید:")
     await callback.answer()
 
 
@@ -362,7 +363,7 @@ async def admin_invoices(callback: CallbackQuery):
         return
     async with SessionLocal() as session:
         invoices = list((await session.scalars(select(Invoice).order_by(Invoice.id.desc()).limit(12))).all())
-    text = "🧾 <b>آخرین فاکتورها</b>\n\nبرای مشاهده جزئیات، یکی را انتخاب کن."
+    text = "🧾 <b>آخرین فاکتورها</b>\n\nبرای مشاهده جزئیات، یکی از فاکتورها را انتخاب کنید."
     await callback.message.edit_text(text, reply_markup=invoices_keyboard(invoices))
     await callback.answer()
 
@@ -399,12 +400,12 @@ async def admin_invoice_detail(callback: CallbackQuery):
         merchant = await session.get(Merchant, invoice.merchant_id)
         card = await session.get(BankCard, invoice.card_id)
     text = (
-        "🧾 <b>جزئیات فاکتور</b>\n\n"
+        "🧾 <b>جزئیات فاکتور</b>\n━━━━━━━━━━━━━━━━\n"
         f"شناسه داخلی: <code>{invoice.id}</code>\n"
         f"Payment ID: <code>{invoice.token}</code>\n"
         f"Order ID: <code>{html.escape(invoice.order_id)}</code>\n"
         f"پذیرنده: {html.escape(merchant.name if merchant else '-')} (<code>{merchant.telegram_user_id if merchant else '-'}</code>)\n"
-        f"وضعیت: <b>{invoice.status}</b>\n"
+        f"وضعیت: <b>{html.escape(invoice_status_label(invoice.status))}</b>\n"
         f"مبلغ اصلی: {toman(invoice.base_amount_rial)} تومان\n"
         f"کارمزد: {toman(invoice.fee_amount_rial)} تومان\n"
         f"کد تطبیق مبلغ: +{toman(invoice.unique_amount_rial)} تومان\n"
@@ -439,7 +440,7 @@ async def admin_invoice_cancel(callback: CallbackQuery):
         await release_invoice_reservation(session, invoice, "cancelled")
         await session.commit()
     await callback.message.edit_text(
-        "✅ فاکتور لغو شد و کارمزد رزروشده آزاد شد.",
+        "✅ فاکتور لغو شد و مبلغ رزروشده به موجودی قابل استفاده بازگشت.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="مشاهده فاکتور", callback_data=f"admin:invoice:{invoice_id}")],
@@ -476,7 +477,7 @@ async def admin_reviews(callback: CallbackQuery):
     ]
     keyboard_rows.append([InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")])
     text = "🔎 <b>پیامک‌های نیازمند بررسی</b>\n\n" + (
-        "یکی از پیامک‌ها را انتخاب کن." if rows else "موردی برای بررسی وجود ندارد."
+        "یکی از پیامک‌ها را برای بررسی انتخاب کنید." if rows else "موردی برای بررسی وجود ندارد."
     )
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows))
     await callback.answer()
@@ -492,14 +493,15 @@ async def admin_sms_detail(callback: CallbackQuery):
     if not sms:
         return await callback.answer("پیامک پیدا نشد.", show_alert=True)
     text = (
-        "📨 <b>جزئیات پیامک بانکی</b>\n\n"
+        "📨 <b>جزئیات پیامک بانکی</b>\n━━━━━━━━━━━━━━━━\n"
         f"شناسه: <code>{sms.id}</code>\n"
         f"بانک: {html.escape(sms.bank_code)}\n"
         f"مبلغ: <b>{toman(sms.amount_rial)} تومان</b>\n"
         f"کارت: ****{sms.card_last4 or '-'}\n"
         f"مرجع: <code>{html.escape(sms.reference_number or '-')}</code>\n"
         f"وضعیت: <code>{sms.status}</code>\n"
-        f"اطمینان Parser: {sms.parse_confidence}%\n\n"
+        f"اطمینان تشخیص: {sms.parse_confidence}%\n"
+        f"نتیجه بررسی: {html.escape(sms_result_label(sms.status))}\n\n"
         f"<code>{html.escape(sms.raw_message[:700])}</code>"
     )
     rows = [
@@ -524,7 +526,7 @@ async def admin_sms_reject(callback: CallbackQuery):
             return await callback.answer("پیامک تأییدشده قابل رد نیست.", show_alert=True)
         sms.status = "rejected"
         await session.commit()
-    await callback.message.edit_text("✅ پیامک رد شد.", reply_markup=admin_menu())
+    await callback.message.edit_text("✅ پیامک از فرایند بررسی خارج شد.", reply_markup=admin_menu())
     await callback.answer()
 
 
@@ -535,7 +537,7 @@ async def admin_sms_approve_start(callback: CallbackQuery, state: FSMContext):
     sms_id = int(callback.data.rsplit(":", 1)[1])
     await state.set_state(AdminSmsApproveState.invoice_token)
     await state.update_data(sms_id=sms_id)
-    await callback.message.answer("Payment ID فاکتور مقصد را بفرست:")
+    await callback.message.answer("شناسه پرداخت فاکتور مقصد را ارسال کنید:")
     await callback.answer()
 
 
@@ -552,7 +554,7 @@ async def admin_sms_approve_finish(message: Message, state: FSMContext):
             select(Invoice).where(Invoice.token == token).options(joinedload(Invoice.card), joinedload(Invoice.merchant))
         )
         if not sms or not invoice:
-            return await message.answer("پیامک یا فاکتور پیدا نشد؛ Payment ID را دوباره بررسی کن.")
+            return await message.answer("پیامک یا فاکتور پیدا نشد؛ شناسه پرداخت را دوباره بررسی کنید.")
         if sms.matched_invoice_id or sms.status == "matched":
             await state.clear()
             return await message.answer("این پیامک قبلاً استفاده شده است.")
@@ -574,7 +576,7 @@ async def admin_sms_approve_finish(message: Message, state: FSMContext):
         await session.commit()
     await state.clear()
     await send_paid_callback(paid_invoice)
-    await message.answer("✅ پیامک به فاکتور متصل و پرداخت تأیید شد.", reply_markup=admin_menu())
+    await message.answer("✅ پیامک با فاکتور تطبیق داده شد و پرداخت تأیید شد.", reply_markup=admin_menu())
 
 
 @router.callback_query(F.data == "admin:cards")
@@ -643,7 +645,7 @@ async def admin_system(callback: CallbackQuery):
         last_update = await session.scalar(select(UpdateLog).order_by(UpdateLog.id.desc()).limit(1))
     error = html.escape(str(backup.get("last_error") or "ندارد"))
     text = (
-        "🖥 <b>وضعیت سیستم</b>\n\n"
+        "🖥 <b>وضعیت سامانه</b>\n━━━━━━━━━━━━━━━━\n"
         f"نسخه برنامه: <code>{APP_VERSION}</code>\n"
         f"دامنه: <code>{html.escape(settings.base_url)}</code>\n"
         f"مخزن: <code>{html.escape(settings.github_repository)}</code>\n"
@@ -684,7 +686,7 @@ async def admin_update(callback: CallbackQuery):
     if not await require_admin_callback(callback):
         return
     await callback.message.answer(
-        "📦 فایل ZIP نسخه جدید را همین‌جا برای ربات بفرست.\n\n"
-        "بسته بررسی می‌شود، در GitHub Commit می‌شود و Railway به‌صورت خودکار Deploy جدید را آغاز می‌کند."
+        "📦 فایل ZIP نسخه جدید را در همین گفتگو ارسال کنید.\n\n"
+        "پس از اعتبارسنجی بسته، تغییرات در GitHub ثبت می‌شود و Railway انتشار نسخه جدید را به‌صورت خودکار آغاز می‌کند."
     )
     await callback.answer()

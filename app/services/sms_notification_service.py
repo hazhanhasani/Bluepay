@@ -4,6 +4,7 @@ import html
 
 import httpx
 
+from app.bot.presentation import sms_result_label
 from app.core.config import settings
 from app.models import Invoice, Merchant, SmsTransaction
 from app.services.sms_service import SmsIngestDiagnostic
@@ -16,31 +17,49 @@ def _toman(value: int | None) -> str:
     return f"{value // 10:,} تومان"
 
 
+def _technical_detail(sms: SmsTransaction, diagnostic: SmsIngestDiagnostic) -> str:
+    return (
+        f"🔧 کد بررسی: <code>{html.escape(diagnostic.result)}</code>\n"
+        f"🧠 اطمینان تشخیص: <b>{sms.parse_confidence}%</b>\n"
+        f"🧩 نسخه پردازشگر: <code>{APP_VERSION}</code>"
+    )
+
+
 async def send_sms_processing_notice(
     merchant: Merchant,
     sms: SmsTransaction,
     invoice: Invoice | None,
     diagnostic: SmsIngestDiagnostic,
 ) -> None:
-    icon = "✅" if diagnostic.result == "matched" else "⚠️"
-    title = "پرداخت تأیید شد" if invoice else "پیامک رسید اما فاکتور تأیید نشد"
-    text = (
-        f"{icon} <b>{title}</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        f"🏦 بانک تشخیص‌داده‌شده: <code>{html.escape(sms.bank_code)}</code>\n"
-        f"💵 مبلغ: <b>{_toman(sms.amount_rial)}</b>\n"
-        f"📱 منبع: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
-        f"🧠 اطمینان: <b>{sms.parse_confidence}%</b>\n"
-        f"📌 نتیجه: <code>{html.escape(diagnostic.result)}</code>\n"
-        f"🧩 نسخه پردازشگر: <code>{APP_VERSION}</code>\n"
-        f"📝 توضیح: {html.escape(diagnostic.detail)}"
-    )
-    if not invoice:
+    if diagnostic.result == "duplicate":
+        return
+
+    if invoice:
+        text = (
+            "✅ <b>پرداخت با موفقیت تأیید شد</b>\n"
+            "━━━━━━━━━━━━━━━━\n"
+            f"🧾 شناسه سفارش: <code>{html.escape(invoice.order_id)}</code>\n"
+            f"💳 مبلغ پرداخت: <b>{_toman(sms.amount_rial)}</b>\n"
+            f"🏦 بانک: <b>{html.escape(sms.bank_code)}</b>\n"
+            f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "پرداخت به‌صورت خودکار با فاکتور در انتظار تطبیق داده شد.\n\n"
+            + _technical_detail(sms, diagnostic)
+        )
+    else:
+        text = (
+            "⚠️ <b>پیامک دریافت شد؛ پرداخت تأیید نشد</b>\n"
+            "━━━━━━━━━━━━━━━━\n"
+            f"🏦 بانک: <b>{html.escape(sms.bank_code)}</b>\n"
+            f"💵 مبلغ تشخیص‌داده‌شده: <b>{_toman(sms.amount_rial)}</b>\n"
+            f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
+            f"🔎 نتیجه بررسی: <b>{html.escape(sms_result_label(diagnostic.result))}</b>\n"
+            f"📝 توضیح: {html.escape(diagnostic.detail)}\n\n"
+            + _technical_detail(sms, diagnostic)
+        )
         preview = html.escape((sms.raw_message or "").strip()[:350])
         if preview:
-            text += f"\n\n<b>متن واقعی دریافت‌شده:</b>\n<blockquote>{preview}</blockquote>"
-    if invoice:
-        text += f"\n🧾 شناسه سفارش: <code>{html.escape(invoice.order_id)}</code>"
+            text += f"\n\n<b>متن دریافت‌شده</b>\n<blockquote>{preview}</blockquote>"
 
     url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
     try:
@@ -66,17 +85,16 @@ async def send_invalid_sms_payload_notice(
 ) -> None:
     safe_preview = html.escape((preview or "").strip()[:300])
     text = (
-        "❌ <b>بدنه وبهوک پیامک معتبر نیست</b>\n"
+        "❌ <b>درخواست پیامک قابل پردازش نیست</b>\n"
         "━━━━━━━━━━━━━━━━\n"
-        f"📌 خطا: <code>{html.escape(error_code)}</code>\n"
-        f"📝 توضیح: {html.escape(detail)}"
+        f"🔧 کد خطا: <code>{html.escape(error_code)}</code>\n"
+        f"📝 علت: {html.escape(detail)}\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "در SMS Forwarder، نوع Body را روی <code>JSON</code> قرار دهید و متغیرها را با دکمه <b>{}</b> برنامه درج کنید.\n\n"
+        '<code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}"}</code>'
     )
     if safe_preview:
-        text += f"\n\n<blockquote>{safe_preview}</blockquote>"
-    text += (
-        "\n\n⚠️ در SMS Forwarder، فیلدهای Incoming Number و Message Body را "
-        "از منوی Message Template خود برنامه درج کن؛ آن‌ها را به‌صورت متن ساده تایپ نکن."
-    )
+        text += f"\n\n<b>بدنه دریافت‌شده</b>\n<blockquote>{safe_preview}</blockquote>"
 
     url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
     try:
