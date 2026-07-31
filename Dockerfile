@@ -54,17 +54,21 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state))
 
 
-def validate_zip(data: bytes):
+def _safe_zip_entries(data: bytes):
     if len(data) > MAX_ZIP:
         raise ValueError("حجم ZIP بیشتر از ۲۵ مگابایت است")
+
     files = {}
     total = 0
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         infos = [item for item in zf.infolist() if not item.is_dir()]
         if len(infos) > MAX_FILES:
             raise ValueError("تعداد فایل‌های بسته بیش از حد مجاز است")
+
         for info in infos:
             path = posixpath.normpath(info.filename.replace("\\", "/").lstrip("/"))
+            if path in {"", "."}:
+                continue
             if path == ".." or path.startswith("../"):
                 raise ValueError("مسیر ناامن داخل ZIP")
             if path.startswith("__MACOSX/") or path.endswith(".DS_Store"):
@@ -73,19 +77,77 @@ def validate_zip(data: bytes):
                 raise ValueError(f"فایل حساس {path} داخل ZIP مجاز نیست")
             if info.external_attr >> 16 & 0o170000 == 0o120000:
                 raise ValueError("Symbolic link مجاز نیست")
+
             content = zf.read(info)
             total += len(content)
             if total > MAX_EXTRACTED:
                 raise ValueError("حجم استخراج‌شده بیش از حد مجاز است")
             files[path] = content
-    missing = REQUIRED - set(files)
+    return files
+
+
+def _project_from_entries(entries: dict[str, bytes]):
+    # حالت عادی: فایل‌های پروژه مستقیماً در ریشه ZIP هستند.
+    if REQUIRED.issubset(entries):
+        return entries
+
+    # پشتیبانی از ZIPهایی که کل پروژه داخل یک پوشه مانند gateway-bot/ قرار دارد.
+    roots = set()
+    for path in entries:
+        parts = path.split("/")
+        for index in range(1, len(parts)):
+            roots.add("/".join(parts[:index]) + "/")
+
+    for root in sorted(roots, key=lambda item: (item.count("/"), len(item))):
+        stripped = {
+            path[len(root):]: content
+            for path, content in entries.items()
+            if path.startswith(root) and path[len(root):]
+        }
+        if REQUIRED.issubset(stripped):
+            return stripped
+
+    return None
+
+
+def validate_zip(data: bytes, depth: int = 0):
+    entries = _safe_zip_entries(data)
+    project = _project_from_entries(entries)
+
+    # پشتیبانی از بسته تحویل: اگر ZIP اصلی داخل ZIP دیگری باشد، خودکار بازش کن.
+    if project is None and depth < 2:
+        nested = [
+            (path, content)
+            for path, content in entries.items()
+            if path.lower().endswith(".zip")
+        ]
+        nested.sort(key=lambda item: ("gateway-bot" not in item[0].lower(), item[0]))
+        errors = []
+        for path, content in nested:
+            try:
+                return validate_zip(content, depth + 1)
+            except (ValueError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
+                errors.append(f"{path}: {exc}")
+
+    if project is None:
+        found = ", ".join(sorted(entries)[:12]) or "هیچ فایل قابل استفاده‌ای"
+        raise ValueError(
+            "فایل‌های ضروری موجود نیستند: "
+            + ", ".join(sorted(REQUIRED))
+            + "\nفایل‌های ابتدای بسته: "
+            + found
+            + "\nفایل gateway-bot-v0.2.1.zip یا بسته تحویل جدید را ارسال کن."
+        )
+
+    missing = REQUIRED - set(project)
     if missing:
         raise ValueError("فایل‌های ضروری موجود نیستند: " + ", ".join(sorted(missing)))
-    release = json.loads(files["release.json"].decode("utf-8"))
+
+    release = json.loads(project["release.json"].decode("utf-8"))
     version = str(release.get("version", "")).strip()
     if not version:
         raise ValueError("version در release.json وجود ندارد")
-    return version, str(release.get("description", "")), files
+    return version, str(release.get("description", "")), project
 
 
 class GitHubPublisher:
@@ -97,7 +159,7 @@ class GitHubPublisher:
             "Authorization": f"Bearer {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": API_VERSION,
-            "User-Agent": "Gateway-Initial-Installer",
+            "User-Agent": "Gateway-Initial-Installer/0.2.1",
         }
 
     async def request(self, method, url, **kwargs):
