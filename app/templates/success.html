@@ -1,15 +1,24 @@
 <!doctype html>
 <html lang="fa" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>پرداخت موفق</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main class="shell compact"><section class="card receipt success-card">
-<div class="success-icon">✓</div><span class="badge success">پرداخت تأیید شد</span>
-<h1>پرداخت با موفقیت انجام شد</h1>
-<p>{{ invoice.merchant.name }}</p>
-<div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
-<div class="summary">
-<div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
-<div><span>کد تطبیق مبلغ</span><b>{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
-<div><span>شماره پیگیری</span><b>{{ invoice.reference_number or 'ثبت نشده' }}</b></div>
-<div><span>وضعیت</span><b>موفق</b></div>
-</div>
-</section></main></body></html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>پرداخت موفق</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<main class="shell compact">
+  <div class="brandbar"><div class="brand"><div class="brand-mark">B</div><div class="brand-copy"><strong>بلوپی</strong><span>رسید پرداخت</span></div></div><span class="badge success">تأیید بانکی</span></div>
+  <div class="payment-steps"><div class="payment-step active"><i></i><span>فاکتور</span></div><div class="payment-step active"><i></i><span>واریز</span></div><div class="payment-step active"><i></i><span>تأیید</span></div></div>
+  <section class="card receipt success-card">
+    <div class="success-icon">✓</div>
+    <span class="badge success">پرداخت موفق</span>
+    <h1>تراکنش با موفقیت تأیید شد</h1>
+    <p>پرداخت شما برای {{ invoice.merchant.name }} ثبت شد.</p>
+    <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
+    <div class="summary">
+      <div><span>عنوان سفارش</span><b>{{ invoice.description or '-' }}</b></div>
+      <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
+      <div><span>کد تطبیق</span><b>{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
+      <div><span>شماره پیگیری</span><b>{{ invoice.reference_number or 'ثبت نشده' }}</b></div>
+      <div><span>وضعیت نهایی</span><b>پرداخت‌شده</b></div>
+    </div>
+    <div class="security-strip">✅ نتیجه پرداخت به پذیرنده اعلام شده است</div>
+  </section>
+</main>
+</body></html>

@@ -3,19 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>مستندات اتصال BluePay</title>
+  <title>مستندات توسعه‌دهندگان بلوپی</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="docs-body">
   <header class="docs-topbar">
     <div class="docs-wrap topbar-inner">
-      <div>
-        <span class="badge">BluePay Developers</span>
-        <h1>مستندات اتصال سایت و ربات</h1>
-<p>برای جلوگیری از تداخل پرداخت‌های هم‌مبلغ، سیستم به هر فاکتور یک کد تطبیق ۱ تا ۹۹۹ تومانی اضافه می‌کند. همیشه از <code>payable_amount_rial</code> برای مبلغ واریز استفاده کنید.</p>
-        <p>ساخت فاکتور، استعلام وضعیت، لغو فاکتور، دریافت Callback و اتصال پیامک بانکی</p>
+      <div class="topbar-brand">
+        <div class="brand-mark">B</div>
+        <div>
+          <span class="badge">BluePay Developers</span>
+          <h1>مستندات توسعه‌دهندگان بلوپی</h1>
+          <p>API فاکتور، Callback امضاشده و اتصال تأیید پیامک بانکی</p>
+        </div>
       </div>
-      <a class="ghost-link" href="/">وضعیت سرویس</a>
+      <a class="ghost-link" href="/">صفحه اصلی سرویس</a>
     </div>
   </header>
 
@@ -53,17 +55,17 @@
       <section class="card" id="quickstart">
         <div class="section-title"><div class="icon-box">🚀</div><div><h2>شروع سریع در ۴ مرحله</h2><p>مسیر پیشنهادی برای راه‌اندازی بدون سردرگمی</p></div></div>
         <div class="steps-grid">
-          <div class="step-card"><b>۱</b><h3>API Key بساز</h3><p>در ربات وارد «آموزش و اتصال ← کلید API» شو و کلید را یک‌بار ذخیره کن.</p></div>
-          <div class="step-card"><b>۲</b><h3>Callback ثبت کن</h3><p>آدرس HTTPS سایت یا ربات را ثبت کن تا نتیجه پرداخت خودکار ارسال شود.</p></div>
-          <div class="step-card"><b>۳</b><h3>فاکتور بساز</h3><p>با API یک فاکتور بساز و لینک payment_url را برای مشتری ارسال کن.</p></div>
-          <div class="step-card"><b>۴</b><h3>پیامک را وصل کن</h3><p>Webhook اختصاصی را داخل SMS Forwarder گوشی ثبت کن تا پرداخت تأیید شود.</p></div>
+          <div class="step-card"><b>۱</b><h3>ساخت کلید API</h3><p>در ربات وارد «اتصال و API ← کلید API» شوید و کلید را در محل امن نگهداری کنید.</p></div>
+          <div class="step-card"><b>۲</b><h3>ثبت Callback</h3><p>نشانی HTTPS سایت یا ربات را ثبت کنید تا نتیجه پرداخت به‌صورت خودکار ارسال شود.</p></div>
+          <div class="step-card"><b>۳</b><h3>ساخت فاکتور</h3><p>با API یک ساخت فاکتور و لینک payment_url را برای مشتری ارسال کن.</p></div>
+          <div class="step-card"><b>۴</b><h3>اتصال پیامک بانکی</h3><p>Webhook اختصاصی را در SMS Forwarder ثبت کنید تا واریزها به‌صورت خودکار تأیید شوند.</p></div>
         </div>
       </section>
 
       <section class="card" id="api">
         <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
         <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
-        <div class="notice">کلید API را در فرانت‌اند، HTML یا اپلیکیشن مشتری قرار نده. درخواست ساخت فاکتور باید از Backend سایت یا ربات شما ارسال شود.</div>
+        <div class="notice">کلید API را در فرانت‌اند، HTML یا اپلیکیشن مشتری قرار ندهید. درخواست ساخت فاکتور باید از Backend سایت یا ربات شما ارسال شود.</div>
 
         <h3>ساخت فاکتور</h3>
         <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices</code></div>
@@ -225,25 +227,26 @@ if (!hash_equals($expected, $received)) {
 }
 http_response_code(200);
 echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
-        <div class="notice warning">برای جلوگیری از پردازش تکراری، مقدار X-Gateway-Delivery یا payment_id را در دیتابیس خود ذخیره و یکتا کن.</div>
+        <div class="notice warning">برای جلوگیری از پردازش تکراری، مقدار X-Gateway-Delivery یا payment_id را در دیتابیس خود ذخیره کنید و یکتایی آن را کنترل کنید.</div>
       </section>
 
       <section class="card" id="sms-webhook">
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
-        <h3>ساخت Body در SMS Forwarder</h3>
-        <pre><code>{"device_id":"phone-1","sender":"","message":""}</code><button onclick="copyPre(this)">کپی اسکلت JSON</button></pre>
-        <div class="notice warning"><b>مهم:</b> عبارت‌های <code>{Incoming Number}</code> و <code>{Message Body}</code> را تایپ یا از سایت کپی نکن. این دو باید به‌صورت فیلد پویا از بخش <b>Message Template</b> یا فهرست متغیرهای خود SMS Forwarder درج شوند.</div>
+        <h3>بدنه استاندارد SMS Forwarder</h3>
+        <pre><code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}","received_time":"{time}","incoming_sim":"{in-sim}"}</code><button onclick="copyPre(this)">کپی JSON</button></pre>
+        <div class="notice warning"><b>مهم:</b> متغیرهای <code>{in-number}</code>، <code>{msg}</code>، <code>{time}</code> و <code>{in-sim}</code> را با دکمه <b>{}</b> خود برنامه درج کن. Retry پیام‌های قدیمی ممکن است بدنه ذخیره‌شده قبلی را دوباره ارسال کند.</div>
         <div class="steps-list">
-          <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی بساز.</span></div>
-          <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را <code>POST</code> انتخاب کن.</span></div>
-          <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
-          <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب و اسکلت JSON بالا را وارد کن.</span></div>
-          <div><b>۵</b><span>داخل مقدار <code>sender</code>، فیلد پویا <b>Incoming Number</b> را از خود برنامه درج کن.</span></div>
-          <div><b>۶</b><span>داخل مقدار <code>message</code>، فیلد پویا <b>Message Body</b> را از خود برنامه درج کن.</span></div>
-          <div><b>۷</b><span>مقدار <code>phone-1</code> نام این گوشی است و برای گوشی‌های دیگر باید متفاوت باشد.</span></div>
-          <div><b>۸</b><span>اگر فیلدها به‌صورت متن ساده ارسال شوند، پاسخ <code>SMS_TEMPLATE_NOT_RESOLVED</code> دریافت می‌کنی و پیامک پردازش نمی‌شود.</span></div>
-          <div><b>۹</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
+          <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی ایجاد کنید.</span></div>
+          <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را <code>POST</code> انتخاب کنید.</span></div>
+          <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کنید.</span></div>
+          <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب و اسکلت JSON بالا را وارد کنید.</span></div>
+          <div><b>۵</b><span>داخل مقدار <code>sender</code>، گزینه <b>Incoming Number : {in-number}</b> را از فهرست برنامه درج کن.</span></div>
+          <div><b>۶</b><span>داخل مقدار <code>message</code>، گزینه <b>Message Body : {msg}</b> را از فهرست برنامه درج کن.</span></div>
+          <div><b>۷</b><span>در صورت نیاز، <code>{time}</code> و <code>{in-sim}</code> را نیز از همان فهرست پویا درج کن.</span></div>
+          <div><b>۸</b><span>مقدار <code>phone-1</code> شناسه این گوشی است و برای گوشی‌های دیگر باید متفاوت باشد.</span></div>
+          <div><b>۹</b><span>فقط یک نوع پیام، ترجیحاً SMS، را برای هر فیلتر فعال کنید تا درخواست تکراری ایجاد نشود.</span></div>
+          <div><b>۱۰</b><span>نام بانک را دستی وارد نکن؛ سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
         </div>
         <details>
           <summary>نمونه JSON برای برنامه‌های دیگر</summary>
@@ -254,13 +257,13 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
 }</code><button onclick="copyPre(this)">کپی</button></pre>
           <p>نام متغیرها در برنامه‌های مختلف فرق می‌کند. فیلد <code>bank_code</code> اختیاری است و برای اتصال عادی لازم نیست.</p>
         </details>
-        <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکن.</div>
+        <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکنید.</div>
       </section>
 
 
       <section class="card" id="banks">
         <div class="section-title"><div class="icon-box">🏦</div><div><h2>بانک‌ها و برندهای پشتیبانی‌شده</h2><p>تشخیص خودکار بانک از فرستنده و متن واقعی پیامک</p></div></div>
-        <div class="notice">برای مشاهده ماشینی فهرست، از <code>GET {{ base_url }}/api/v1/banks</code> استفاده کن. در اتصال معمول نیازی به ارسال دستی نام بانک نیست؛ اگر یک نرم‌افزار تخصصی کد بانک را می‌داند، فیلد اختیاری <code>bank_code</code> همچنان پذیرفته می‌شود.</div>
+        <div class="notice">برای مشاهده ماشینی فهرست، از <code>GET {{ base_url }}/api/v1/banks</code> استفاده کنید. در اتصال معمول نیازی به ارسال دستی نام بانک نیست؛ اگر یک نرم‌افزار تخصصی کد بانک را می‌داند، فیلد اختیاری <code>bank_code</code> همچنان پذیرفته می‌شود.</div>
         <div class="status-table">
         {% for bank in banks %}
           <div><code>{{ bank.code }}</code><span>{{ bank.label }}{% if bank.legacy %} — قدیمی/ادغام‌شده{% endif %}</span></div>

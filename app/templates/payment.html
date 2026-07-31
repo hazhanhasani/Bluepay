@@ -2,56 +2,95 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>پرداخت فاکتور</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101f">
+  <title>پرداخت امن | {{ invoice.merchant.name }}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <main class="shell">
+  <div class="brandbar">
+    <div class="brand">
+      <div class="brand-mark">B</div>
+      <div class="brand-copy"><strong>بلوپی</strong><span>پرداخت مستقیم و امن</span></div>
+    </div>
+    <span class="badge">🔒 اتصال امن</span>
+  </div>
+
+  <div class="payment-steps" aria-label="مراحل پرداخت">
+    <div class="payment-step active"><i></i><span>مشاهده فاکتور</span></div>
+    <div class="payment-step active"><i></i><span>واریز وجه</span></div>
+    <div class="payment-step"><i></i><span>تأیید بانکی</span></div>
+  </div>
+
   <section class="card merchant-head">
     <div class="logo">{{ invoice.merchant.name[:1] }}</div>
-    <div><small>پرداخت امن برای</small><h1>{{ invoice.merchant.name }}</h1></div>
+    <div>
+      <small>پرداخت به پذیرنده</small>
+      <h1>{{ invoice.merchant.name }}</h1>
+      <div class="eyebrow">{{ invoice.description or 'پرداخت سفارش' }}</div>
+    </div>
     <span class="badge pending">در انتظار واریز</span>
   </section>
 
-  <section class="card">
-    <div class="amount-label">مبلغ نهایی قابل پرداخت</div>
+  <section class="card amount-card">
+    <div class="amount-label">مبلغ دقیق قابل پرداخت</div>
     <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
+    <div class="amount-hint">این مبلغ را بدون کم‌وزیاد واریز کنید</div>
     <div class="summary">
       <div><span>مبلغ سفارش</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
-      <div><span>سهم کارمزد مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>
-      <div><span>کد تطبیق مبلغ</span><b>+{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
+      <div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>
+      <div class="highlight"><span>کد تطبیق یکتا</span><b>+{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
       <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
     </div>
+    <div class="timer">⏱ زمان باقی‌مانده: <b id="countdown">--:--</b></div>
   </section>
 
   <section class="card bank-card">
-    <small>واریز به کارت {{ bank_name }}</small>
+    <div class="bank-card-head">
+      <div><small>واریز به کارت {{ bank_name }}</small><div class="eyebrow">حساب مقصد فاکتور</div></div>
+      <div class="bank-logo-mini">{{ bank_name[:1] }}</div>
+    </div>
     <div id="cardNumber" class="card-number">{{ card_display }}</div>
-    <div class="holder">به نام: {{ invoice.card.account_holder }}</div>
-    {% if card_copy %}<button onclick="copyValue('{{ card_copy }}', this)">کپی شماره کارت</button>{% endif %}
+    <div class="holder">به نام {{ invoice.card.account_holder }}</div>
+    {% if card_copy %}<button class="primary-button" onclick="copyValue('{{ card_copy }}', this)">کپی شماره کارت</button>{% endif %}
   </section>
 
   <section class="card note">
-    <b>نکات مهم</b>
-    <p>مبلغ را دقیقاً برابر عدد بالا واریز کنید. بخش کوچک «کد تطبیق مبلغ» برای یکتاکردن پرداخت شماست و نباید از مبلغ کم شود. پس از دریافت پیامک بانک، وضعیت این صفحه به‌صورت خودکار تغییر می‌کند.</p>
-    <div class="loader-line"><span></span> در حال بررسی پرداخت...</div>
+    <div class="note-title"><span>🛡</span><b>راهنمای پرداخت ایمن</b></div>
+    <ul class="notice-list">
+      <li>فقط مبلغ دقیق {{ "{:,}".format(toman(invoice.payable_amount_rial)) }} تومان را واریز کنید.</li>
+      <li>کد تطبیق بخشی از مبلغ نهایی است و نباید حذف شود.</li>
+      <li>پس از دریافت پیامک بانک، صفحه به‌صورت خودکار به رسید موفق تغییر می‌کند.</li>
+      <li>در صورت پایان زمان، از پذیرنده لینک جدید دریافت کنید.</li>
+    </ul>
+    <div class="loader-line"><span></span> در حال پایش وضعیت تراکنش</div>
+    <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود</div>
   </section>
 </main>
 <script>
 async function copyValue(value, button){
-  await navigator.clipboard.writeText(value);
-  const old = button.textContent; button.textContent = 'کپی شد ✓';
-  setTimeout(()=>button.textContent=old, 1400);
+  try{
+    await navigator.clipboard.writeText(value);
+    const old=button.textContent; button.textContent='شماره کارت کپی شد ✓';
+    setTimeout(()=>button.textContent=old,1600);
+  }catch(e){ button.textContent='کپی ناموفق بود'; }
 }
 async function checkStatus(){
   try{
-    const response = await fetch('/api/payment/{{ invoice.token }}/status', {cache:'no-store'});
-    const data = await response.json();
-    if(data.status === 'paid' || data.status === 'expired' || data.status === 'cancelled') location.reload();
+    const response=await fetch('/api/payment/{{ invoice.token }}/status',{cache:'no-store'});
+    const data=await response.json();
+    if(['paid','expired','cancelled'].includes(data.status)) location.reload();
   }catch(e){}
 }
-setInterval(checkStatus, 3000);
+const expiry=new Date('{{ invoice.expires_at.isoformat() }}');
+function tick(){
+  const diff=Math.max(0,expiry.getTime()-Date.now());
+  const m=Math.floor(diff/60000); const s=Math.floor((diff%60000)/1000);
+  document.getElementById('countdown').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  if(diff===0) setTimeout(()=>location.reload(),1000);
+}
+tick(); setInterval(tick,1000); setInterval(checkStatus,3000);
 </script>
 </body>
 </html>

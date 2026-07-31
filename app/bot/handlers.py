@@ -28,7 +28,20 @@ from app.bot.keyboards import (
     sms_webhook_menu,
 )
 from app.bot.states import AddCardState, CallbackConfigState, ManualInvoiceState
-from app.bot.presentation import fee_mode_label
+from app.bot.presentation import (
+    DIVIDER,
+    badge,
+    error,
+    esc,
+    fee_mode_label,
+    field,
+    info,
+    money_toman,
+    panel,
+    progress,
+    success,
+    warning,
+)
 from app.core.config import settings
 from app.core.security import encrypt_text, random_secret
 from app.core.urls import validate_public_https_url
@@ -86,7 +99,10 @@ async def home_view(user_id: int) -> tuple[str, Merchant | None]:
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
         if not merchant:
-            return "برای ایجاد حساب، ابتدا دستور /start را ارسال کنید.", None
+            return warning(
+                "حساب پذیرنده فعال نیست",
+                "برای ایجاد حساب و ورود به پنل، دستور <code>/start</code> را ارسال کنید.",
+            ), None
 
         card_count = int(
             await session.scalar(
@@ -94,8 +110,7 @@ async def home_view(user_id: int) -> tuple[str, Merchant | None]:
                     BankCard.merchant_id == merchant.id,
                     BankCard.is_active.is_(True),
                 )
-            )
-            or 0
+            ) or 0
         )
         pending_count = int(
             await session.scalar(
@@ -103,24 +118,44 @@ async def home_view(user_id: int) -> tuple[str, Merchant | None]:
                     Invoice.merchant_id == merchant.id,
                     Invoice.status == "pending",
                 )
-            )
-            or 0
+            ) or 0
+        )
+        paid_count = int(
+            await session.scalar(
+                select(func.count(Invoice.id)).where(
+                    Invoice.merchant_id == merchant.id,
+                    Invoice.status == "paid",
+                )
+            ) or 0
         )
 
-    status = "🟢 فعال" if merchant.is_active else "🔴 غیرفعال"
-    text = f"""💠 <b>پنل پذیرنده BluePay</b>
-━━━━━━━━━━━━━━━━
-👤 نام حساب: <b>{html.escape(merchant.name)}</b>
-📡 وضعیت: <b>{status}</b>
-
-💰 موجودی قابل استفاده: <b>{toman(merchant.available_balance_rial)} تومان</b>
-🏦 کارت‌های فعال: <b>{card_count}</b>
-🧾 فاکتورهای در انتظار: <b>{pending_count}</b>
-⚙️ نحوه پرداخت کارمزد: <b>{fee_title(merchant.fee_mode)}</b>
-━━━━━━━━━━━━━━━━
-لطفاً یکی از گزینه‌های زیر را انتخاب کنید."""
+    account_status = badge("active" if merchant.is_active else "inactive")
+    api_status = badge("configured" if merchant.api_key_prefix else "missing")
+    callback_status = badge("configured" if merchant.callback_url else "missing")
+    lines = [
+        f"👤 <b>{esc(merchant.name)}</b>",
+        f"🪪 شناسه پذیرنده: <code>BP-{merchant.id:06d}</code>",
+        f"📡 وضعیت حساب: <b>{account_status}</b>",
+        "",
+        "<b>نمای کلی حساب</b>",
+        f"💰 اعتبار قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
+        f"🏦 کارت‌های فعال: <b>{card_count:,}</b>",
+        f"🕓 فاکتورهای در انتظار: <b>{pending_count:,}</b>",
+        f"✅ پرداخت‌های تأییدشده: <b>{paid_count:,}</b>",
+        "",
+        "<b>وضعیت اتصال</b>",
+        f"🔑 API: <b>{api_status}</b>",
+        f"🔔 Callback: <b>{callback_status}</b>",
+        f"⚙️ سیاست کارمزد: <b>{fee_title(merchant.fee_mode)}</b>",
+    ]
+    text = panel(
+        "💠",
+        "داشبورد پذیرنده",
+        lines,
+        subtitle="مدیریت پرداخت، فاکتور و اتصال‌های فنی",
+        footer="برای ادامه، یکی از گزینه‌های پنل را انتخاب کنید.",
+    )
     return text, merchant
-
 
 @router.message(CommandStart())
 async def start(message: Message):
@@ -149,38 +184,49 @@ async def home(callback: CallbackQuery):
 async def wallet(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
 
-    text = f"""💰 <b>کیف پول کارمزد</b>
-━━━━━━━━━━━━━━━━
-💵 موجودی کل: <b>{toman(merchant.wallet_balance_rial)} تومان</b>
-🔒 موجودی رزروشده: <b>{toman(merchant.reserved_balance_rial)} تومان</b>
-✅ موجودی قابل استفاده: <b>{toman(merchant.available_balance_rial)} تومان</b>
-⚙️ کارمزد هر تأیید: <b>{toman(merchant.verification_fee_rial)} تومان</b>
-━━━━━━━━━━━━━━━━
-کارمزد تنها پس از تأیید نهایی پرداخت کسر می‌شود."""
+    reserve_percent = 0
+    if merchant.wallet_balance_rial > 0:
+        reserve_percent = round((merchant.reserved_balance_rial / merchant.wallet_balance_rial) * 100)
+    text = panel(
+        "💰",
+        "کیف پول کارمزد",
+        [
+            f"💵 موجودی کل: <b>{money_toman(merchant.wallet_balance_rial)}</b>",
+            f"🔒 اعتبار رزروشده: <b>{money_toman(merchant.reserved_balance_rial)}</b>",
+            f"✅ اعتبار قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
+            f"🧾 هزینه هر تأیید موفق: <b>{money_toman(merchant.verification_fee_rial)}</b>",
+            "",
+            f"📊 نسبت اعتبار رزروشده: <b>{reserve_percent}%</b>",
+        ],
+        subtitle="کنترل اعتبار موردنیاز برای تأیید پرداخت‌ها",
+        footer="هزینه فقط پس از تأیید قطعی پرداخت کسر می‌شود؛ فاکتور منقضی یا لغوشده هزینه‌ای ندارد.",
+    )
     await callback.message.edit_text(text, reply_markup=main_menu(merchant.is_admin))
     await callback.answer()
-
 
 @router.callback_query(F.data == "fee")
 async def fee(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
 
-    text = f"""⚙️ <b>تنظیم نحوه پرداخت کارمزد</b>
-━━━━━━━━━━━━━━━━
-مشخص کنید هزینه تأیید پرداخت چگونه میان مشتری و پذیرنده تقسیم شود.
-
-👤 <b>مشتری:</b> کل کارمزد به مبلغ فاکتور افزوده می‌شود.
-🤝 <b>تقسیم مساوی:</b> نیمی از کارمزد به فاکتور افزوده می‌شود.
-🏪 <b>پذیرنده:</b> مبلغ فاکتور بدون افزایش باقی می‌ماند.
-
-تنظیم فعلی: <b>{fee_title(merchant.fee_mode)}</b>"""
+    text = panel(
+        "⚙️",
+        "سیاست پرداخت کارمزد",
+        [
+            f"تنظیم فعلی: <b>{fee_title(merchant.fee_mode)}</b>",
+            "",
+            "👤 <b>مشتری</b> — کل هزینه تأیید به مبلغ فاکتور افزوده می‌شود.",
+            "🤝 <b>تقسیم مساوی</b> — نیمی از هزینه به مشتری و نیم دیگر به پذیرنده تعلق می‌گیرد.",
+            "🏪 <b>پذیرنده</b> — مبلغ سفارش برای مشتری بدون افزایش باقی می‌ماند.",
+        ],
+        subtitle="نحوه تقسیم هزینه تأیید هر تراکنش",
+        footer="این انتخاب، پیش‌فرض فاکتورهای بعدی است و هنگام ساخت هر فاکتور قابل تغییر خواهد بود.",
+    )
     await callback.message.edit_text(text, reply_markup=fee_menu(merchant.fee_mode))
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("fee:"))
 async def set_fee(callback: CallbackQuery):
@@ -195,37 +241,48 @@ async def set_fee(callback: CallbackQuery):
         await session.commit()
 
     await callback.message.edit_text(
-        f"""✅ <b>تنظیمات کارمزد ذخیره شد</b>
-━━━━━━━━━━━━━━━━
-روش انتخاب‌شده: <b>{fee_title(mode)}</b>
-
-این تنظیم به‌صورت پیش‌فرض برای فاکتورهای جدید اعمال خواهد شد.""",
+        success(
+            "سیاست کارمزد به‌روزرسانی شد",
+            f"روش پیش‌فرض حساب: <b>{fee_title(mode)}</b>",
+            footer="این انتخاب از فاکتور بعدی اعمال می‌شود و هنگام صدور هر فاکتور قابل تغییر است.",
+        ),
         reply_markup=main_menu(merchant.is_admin),
     )
-    await callback.answer("تنظیمات ذخیره شد.")
+    await callback.answer("تغییرات ذخیره شد.")
 
 
 @router.callback_query(F.data == "cards")
 async def cards(callback: CallbackQuery):
-    text = """🏦 <b>کارت‌های بانکی</b>
-━━━━━━━━━━━━━━━━
-می‌توانید چند کارت از بانک‌ها و برندهای بانکی مختلف ثبت کنید. هنگام ایجاد هر فاکتور، یک کارت مقصد انتخاب می‌شود."""
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+    text = panel(
+        "🏦",
+        "مدیریت کارت‌های مقصد",
+        [
+            "برای دریافت پرداخت می‌توانید چند کارت از بانک‌های مختلف ثبت کنید.",
+            "کارت پیش‌فرض در انتخاب خودکار اولویت دارد و کارت غیرفعال در فاکتورهای جدید استفاده نمی‌شود.",
+        ],
+        subtitle="ثبت و مشاهده حساب‌های دریافت وجه",
+        footer="اطلاعات کامل کارت به‌صورت رمزنگاری‌شده نگهداری می‌شود.",
+    )
     await callback.message.edit_text(text, reply_markup=cards_menu())
     await callback.answer()
-
 
 @router.callback_query(F.data == "card:add")
 async def add_card_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.set_state(AddCardState.bank)
     await callback.message.edit_text(
-        """🏦 <b>افزودن کارت — مرحله ۱ از ۴</b>
-━━━━━━━━━━━━━━━━
-بانک صادرکننده کارت را انتخاب کنید.""",
+        panel(
+            "🏦",
+            "ثبت کارت بانکی",
+            [progress(1, 4, "انتخاب بانک"), "بانک یا برند صادرکننده کارت را انتخاب کنید."],
+            subtitle="مرحله اول از ثبت حساب دریافت وجه",
+        ),
         reply_markup=bank_select_menu(),
     )
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("card:bankpage:"))
 async def add_card_bank_page(callback: CallbackQuery, state: FSMContext):
@@ -252,9 +309,12 @@ async def add_card_bank_button(callback: CallbackQuery, state: FSMContext):
     code = callback.data.rsplit(":", 1)[1]
     if code == "other":
         await callback.message.edit_text(
-            """🏦 <b>افزودن کارت — مرحله ۱ از ۴</b>
-━━━━━━━━━━━━━━━━
-نام بانک یا برند بانکی را وارد کنید. نمونه: آینده یا شهر""",
+            panel(
+                "🏦",
+                "ثبت کارت بانکی",
+                [progress(1, 4, "انتخاب بانک"), "نام بانک یا برند بانکی را وارد کنید.", "نمونه: <code>شهر</code>"],
+                subtitle="بانک موردنظر در فهرست آماده وجود ندارد",
+            ),
             reply_markup=flow_cancel_menu(),
         )
         return await callback.answer()
@@ -262,11 +322,12 @@ async def add_card_bank_button(callback: CallbackQuery, state: FSMContext):
     await state.update_data(bank=code)
     await state.set_state(AddCardState.card_number)
     await callback.message.edit_text(
-        f"""💳 <b>افزودن کارت — مرحله ۲ از ۴</b>
-━━━━━━━━━━━━━━━━
-بانک انتخاب‌شده: <b>{bank_title(code)}</b>
-
-شماره ۱۶ رقمی کارت را وارد کنید.""",
+        panel(
+            "💳",
+            "ثبت کارت بانکی",
+            [progress(2, 4, "شماره کارت"), f"بانک انتخاب‌شده: <b>{bank_title(code)}</b>", "شماره ۱۶ رقمی کارت را بدون فاصله وارد کنید."],
+            subtitle="اطلاعات کارت به‌صورت رمزنگاری‌شده ذخیره می‌شود",
+        ),
         reply_markup=flow_cancel_menu(),
     )
     await callback.answer()
@@ -278,11 +339,12 @@ async def add_card_bank(message: Message, state: FSMContext):
     await state.update_data(bank=code)
     await state.set_state(AddCardState.card_number)
     await message.answer(
-        f"""💳 <b>افزودن کارت — مرحله ۲ از ۴</b>
-━━━━━━━━━━━━━━━━
-بانک انتخاب‌شده: <b>{bank_title(code)}</b>
-
-شماره ۱۶ رقمی کارت را وارد کنید.""",
+        panel(
+            "💳",
+            "ثبت کارت بانکی",
+            [progress(2, 4, "شماره کارت"), f"بانک انتخاب‌شده: <b>{bank_title(code)}</b>", "شماره ۱۶ رقمی کارت را بدون فاصله وارد کنید."],
+            subtitle="اطلاعات کارت به‌صورت رمزنگاری‌شده ذخیره می‌شود",
+        ),
         reply_markup=flow_cancel_menu(),
     )
 
@@ -292,18 +354,18 @@ async def add_card_number(message: Message, state: FSMContext):
     number = digits_only(message.text)
     if len(number) != 16:
         return await message.answer(
-            "⚠️ شماره کارت باید دقیقاً ۱۶ رقم باشد. لطفاً دوباره ارسال کنید:",
+            warning("شماره کارت معتبر نیست", "شماره کارت باید دقیقاً ۱۶ رقم باشد. لطفاً دوباره وارد کنید."),
             reply_markup=flow_cancel_menu(),
         )
 
     await state.update_data(card_number=number)
     await state.set_state(AddCardState.holder)
     await message.answer(
-        f"""👤 <b>افزودن کارت — مرحله ۳ از ۴</b>
-━━━━━━━━━━━━━━━━
-شماره کارت: <code>**** **** **** {number[-4:]}</code>
-
-نام صاحب کارت را وارد کنید.""",
+        panel(
+            "👤",
+            "ثبت کارت بانکی",
+            [progress(3, 4, "صاحب کارت"), f"کارت: <code>•••• •••• •••• {number[-4:]}</code>", "نام و نام خانوادگی صاحب کارت را وارد کنید."],
+        ),
         reply_markup=flow_cancel_menu(),
     )
 
@@ -313,10 +375,12 @@ async def add_card_holder(message: Message, state: FSMContext):
     await state.update_data(holder=message.text.strip())
     await state.set_state(AddCardState.source_id)
     await message.answer(
-        """📱 <b>افزودن کارت — مرحله ۴ از ۴</b>
-━━━━━━━━━━━━━━━━
-شناسه گوشی یا منبع پیامک را وارد کنید.
-اگر شناسه‌ای ندارید، فقط <code>-</code> ارسال کنید.""",
+        panel(
+            "📱",
+            "ثبت کارت بانکی",
+            [progress(4, 4, "منبع پیامک"), "شناسه دستگاهی را وارد کنید که پیامک این کارت را ارسال می‌کند.", "نمونه: <code>phone-1</code>", "برای تطبیق خودکار بدون محدودیت دستگاه، <code>-</code> ارسال کنید."],
+            footer="ثبت شناسه دستگاه، دقت تطبیق چند کارت روی چند گوشی را افزایش می‌دهد.",
+        ),
         reply_markup=flow_cancel_menu(),
     )
 
@@ -351,12 +415,16 @@ async def add_card_source(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer(
-        f"""✅ <b>کارت بانکی ثبت شد</b>
-━━━━━━━━━━━━━━━━
-🏦 بانک: <b>{bank_title(data['bank'])}</b>
-💳 شماره کارت: <code>**** **** **** {data['card_number'][-4:]}</code>
-👤 صاحب کارت: <b>{html.escape(data['holder'])}</b>
-📱 منبع پیامک: <b>{html.escape(source_id or 'ثبت نشده')}</b>""",
+        success(
+            "کارت مقصد با موفقیت ثبت شد",
+            "\n".join([
+                f"🏦 بانک: <b>{bank_title(data['bank'])}</b>",
+                f"💳 کارت: <code>•••• •••• •••• {data['card_number'][-4:]}</code>",
+                f"👤 صاحب کارت: <b>{esc(data['holder'])}</b>",
+                f"📱 منبع پیامک: <code>{esc(source_id or 'بدون محدودیت')}</code>",
+            ]),
+            footer="این کارت از هم‌اکنون برای صدور فاکتور قابل استفاده است.",
+        ),
         reply_markup=main_menu(merchant.is_admin),
     )
 
@@ -375,60 +443,75 @@ async def list_cards(callback: CallbackQuery):
         card_rows = list(rows.all()) if rows else []
 
     if not card_rows:
-        text = """🏦 <b>کارت‌های بانکی</b>
-━━━━━━━━━━━━━━━━
-هنوز کارت بانکی ثبت نشده است. برای شروع، گزینه «ثبت کارت جدید» را انتخاب کنید."""
+        text = panel(
+            "💳",
+            "کارت‌های مقصد",
+            "هنوز کارت بانکی ثبت نشده است.",
+            subtitle="حساب‌های دریافت وجه",
+            footer="برای شروع، گزینه «افزودن کارت مقصد» را انتخاب کنید.",
+        )
     else:
         blocks: list[str] = []
         for card in card_rows:
-            badges = []
+            tags = []
             if card.is_default:
-                badges.append("⭐ پیش‌فرض")
-            badges.append("🟢 فعال" if card.is_active else "🔴 غیرفعال")
+                tags.append("⭐ پیش‌فرض")
+            tags.append("🟢 فعال" if card.is_active else "🔴 غیرفعال")
             blocks.append(
-                f"""<b>💳 کارت #{card.id}</b>  {' • '.join(badges)}
-🏦 {html.escape(bank_title(card.bank_code))}
-🔢 <code>**** **** **** {card.card_last4}</code>
-👤 {html.escape(card.account_holder)}"""
+                "\n".join([
+                    f"<b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
+                    f"👤 {esc(card.account_holder)}",
+                    f"📱 منبع پیامک: <code>{esc(card.sms_source_id or 'بدون محدودیت')}</code>",
+                    f"🏷 {' • '.join(tags)}",
+                ])
             )
-        text = "🏦 <b>کارت‌های بانکی من</b>\n━━━━━━━━━━━━━━━━\n\n" + "\n\n────────────\n\n".join(blocks)
+        text = panel(
+            "💳",
+            "کارت‌های مقصد",
+            "\n\n────────────\n\n".join(blocks),
+            subtitle=f"{len(card_rows)} کارت ثبت‌شده",
+            footer="شماره کامل کارت فقط در صفحه پرداخت و به‌صورت امن نمایش داده می‌شود.",
+        )
 
     await callback.message.edit_text(text, reply_markup=cards_menu())
     await callback.answer()
-
 
 @router.callback_query(F.data == "flow:cancel")
 async def cancel_flow(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     text, merchant = await home_view(callback.from_user.id)
     await callback.message.edit_text(
-        "❌ <b>عملیات لغو شد</b>\n\n" + text,
+        info("فرایند لغو شد", "اطلاعات واردشده در این مرحله ذخیره نشد.") + "\n\n" + text,
         reply_markup=main_menu(bool(merchant and merchant.is_admin)),
     )
-    await callback.answer("عملیات متوقف شد.")
-
+    await callback.answer("فرایند لغو شد.")
 
 @router.callback_query(F.data.in_({"invoice:new", "invoice:restart"}))
 async def invoice_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.set_state(ManualInvoiceState.amount)
     await callback.message.edit_text(
-        """🧾 <b>ایجاد فاکتور | مرحله ۱ از ۴</b>
-━━━━━━━━━━━━━━━━
-مبلغ سفارش را به <b>تومان</b> وارد کنید.
-
-نمونه: <code>200000</code>""",
+        panel(
+            "🧾",
+            "ایجاد فاکتور دستی",
+            [
+                progress(1, 4, "مبلغ سفارش"),
+                "مبلغ پایه سفارش را به <b>تومان</b> وارد کنید.",
+                "نمونه: <code>200000</code>",
+            ],
+            subtitle="ساخت لینک پرداخت اختصاصی برای مشتری",
+            footer="کد تطبیق یکتا و سهم کارمزد در مرحله نهایی به مبلغ اضافه می‌شود.",
+        ),
         reply_markup=flow_cancel_menu(),
     )
     await callback.answer()
-
 
 @router.message(ManualInvoiceState.amount)
 async def invoice_amount(message: Message, state: FSMContext):
     raw = digits_only(message.text)
     if not raw or int(raw) < 1000:
         return await message.answer(
-            "⚠️ مبلغ باید عددی و حداقل ۱٬۰۰۰ تومان باشد. لطفاً مبلغ معتبر را وارد کنید:",
+            warning("مبلغ معتبر نیست", "مبلغ سفارش باید عددی و حداقل ۱٬۰۰۰ تومان باشد."),
             reply_markup=flow_cancel_menu(),
         )
 
@@ -436,12 +519,11 @@ async def invoice_amount(message: Message, state: FSMContext):
     await state.update_data(amount_toman=amount)
     await state.set_state(ManualInvoiceState.description)
     await message.answer(
-        f"""📝 <b>ایجاد فاکتور | مرحله ۲ از ۴</b>
-━━━━━━━━━━━━━━━━
-💵 مبلغ سفارش: <b>{amount:,} تومان</b>
-
-عنوان یا توضیح کوتاه فاکتور را وارد کنید.
-نمونه: <code>خرید اشتراک یک‌ماهه</code>""",
+        panel(
+            "📝",
+            "ایجاد فاکتور دستی",
+            [progress(2, 4, "عنوان سفارش"), f"مبلغ پایه: <b>{amount:,} تومان</b>", "عنوانی کوتاه و قابل‌فهم برای مشتری وارد کنید.", "نمونه: <code>اشتراک یک‌ماهه</code>"],
+        ),
         reply_markup=flow_cancel_menu(),
     )
 
@@ -460,9 +542,11 @@ async def invoice_description(message: Message, state: FSMContext):
         return await message.answer("حساب پذیرنده یافت نشد. لطفاً دستور /start را ارسال کنید.")
 
     await message.answer(
-        """⚙️ <b>ایجاد فاکتور | مرحله ۳ از ۴</b>
-━━━━━━━━━━━━━━━━
-نحوه پرداخت کارمزد این فاکتور را انتخاب کنید.""",
+        panel(
+            "⚙️",
+            "ایجاد فاکتور دستی",
+            [progress(3, 4, "تقسیم هزینه"), "مشخص کنید هزینه تأیید این فاکتور توسط چه کسی پرداخت شود.", f"پیش‌فرض حساب: <b>{fee_title(merchant.fee_mode)}</b>"],
+        ),
         reply_markup=invoice_fee_mode_menu(merchant.fee_mode),
     )
 
@@ -499,7 +583,7 @@ async def show_invoice_cards(target: Message, state: FSMContext, user_id: int) -
     if not cards:
         await state.clear()
         await target.answer(
-            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا از بخش «کارت‌های من» یک کارت بانکی ثبت کن.",
+            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا از بخش «کارت‌های من» یک کارت بانکی ثبت کنید.",
             reply_markup=cards_menu(),
         )
         return
@@ -507,9 +591,11 @@ async def show_invoice_cards(target: Message, state: FSMContext, user_id: int) -
     await state.set_state(ManualInvoiceState.card)
     keyboard_data = [(c.id, bank_title(c.bank_code), c.card_last4, c.is_default) for c in cards]
     await target.answer(
-        """🏦 <b>ایجاد فاکتور | مرحله ۴ از ۴</b>
-━━━━━━━━━━━━━━━━
-کارت مقصد را انتخاب کنید. گزینه «انتخاب خودکار» کارت پیش‌فرض یا دارای اولویت را برمی‌گزیند.""",
+        panel(
+            "🏦",
+            "ایجاد فاکتور دستی",
+            [progress(4, 4, "کارت مقصد"), "کارت دریافت‌کننده وجه را انتخاب کنید.", "انتخاب هوشمند، کارت پیش‌فرض و اولویت‌های حساب را در نظر می‌گیرد."],
+        ),
         reply_markup=invoice_cards_menu(keyboard_data),
     )
 
@@ -537,7 +623,7 @@ async def invoice_fee_mode_button(callback: CallbackQuery, state: FSMContext):
     if not cards:
         await state.clear()
         await callback.message.edit_text(
-            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا یک کارت بانکی ثبت کن.",
+            "⚠️ <b>کارت فعالی پیدا نشد</b>\n\nابتدا یک کارت بانکی ثبت کنید.",
             reply_markup=cards_menu(),
         )
         return await callback.answer()
@@ -545,9 +631,11 @@ async def invoice_fee_mode_button(callback: CallbackQuery, state: FSMContext):
     await state.set_state(ManualInvoiceState.card)
     keyboard_data = [(c.id, bank_title(c.bank_code), c.card_last4, c.is_default) for c in cards]
     await callback.message.edit_text(
-        """🏦 <b>ایجاد فاکتور | مرحله ۴ از ۴</b>
-━━━━━━━━━━━━━━━━
-کارت مقصد را انتخاب کنید.""",
+        panel(
+            "🏦",
+            "ایجاد فاکتور دستی",
+            [progress(4, 4, "کارت مقصد"), "کارت دریافت‌کننده وجه را انتخاب کنید."],
+        ),
         reply_markup=invoice_cards_menu(keyboard_data),
     )
     await callback.answer()
@@ -584,7 +672,7 @@ async def prepare_invoice_preview(
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
         if not merchant:
             await state.clear()
-            return await target.answer("حساب پذیرنده یافت نشد.")
+            return await target.answer(error("حساب پذیرنده یافت نشد", "دوباره وارد پنل شوید و فرایند را از ابتدا آغاز کنید."))
 
         stmt = select(BankCard).where(BankCard.merchant_id == merchant.id, BankCard.is_active.is_(True))
         if requested_card_id:
@@ -594,7 +682,10 @@ async def prepare_invoice_preview(
         card = await session.scalar(stmt.limit(1))
 
     if not card:
-        return await target.answer("کارت انتخاب‌شده یافت نشد یا غیرفعال است.", reply_markup=flow_cancel_menu())
+        return await target.answer(
+            warning("کارت مقصد در دسترس نیست", "کارت انتخاب‌شده حذف یا غیرفعال شده است. کارت دیگری انتخاب کنید."),
+            reply_markup=flow_cancel_menu(),
+        )
 
     mode = data.get("fee_mode") or merchant.fee_mode
     fee_rial = merchant.verification_fee_rial
@@ -605,31 +696,34 @@ async def prepare_invoice_preview(
     await state.update_data(resolved_fee_mode=mode, selected_card_id=card.id)
     await state.set_state(ManualInvoiceState.confirm)
 
-    preview = f"""🧾 <b>پیش‌نمایش فاکتور</b>
-━━━━━━━━━━━━━━━━
-📝 عنوان: <b>{html.escape(data['description'])}</b>
-💵 مبلغ سفارش: <b>{toman(base_rial)} تومان</b>
-⚙️ کارمزد تأیید: <b>{toman(fee_rial)} تومان</b>
-👤 سهم مشتری از کارمزد: <b>{toman(customer_fee_rial)} تومان</b>
-🔢 کد تطبیق: <b>به‌صورت خودکار بین ۱ تا ۹۹۹ تومان</b>
-💳 مبلغ پیش از کد تطبیق: <b>{toman(nominal_payable_rial)} تومان</b>
-
-🏦 کارت مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
-🤝 پرداخت کارمزد: <b>{fee_title(mode)}</b>
-⏳ اعتبار لینک: <b>{settings.invoice_ttl_minutes} دقیقه</b>
-━━━━━━━━━━━━━━━━
-پس از تأیید، مبلغ کارمزد تا تعیین وضعیت فاکتور رزرو می‌شود."""
+    preview = panel(
+        "🧾",
+        "بررسی و تأیید فاکتور",
+        [
+            f"📝 عنوان سفارش: <b>{esc(data['description'])}</b>",
+            f"💵 مبلغ پایه: <b>{money_toman(base_rial)}</b>",
+            f"🧾 هزینه تأیید: <b>{money_toman(fee_rial)}</b>",
+            f"👤 سهم مشتری از هزینه: <b>{money_toman(customer_fee_rial)}</b>",
+            f"🔢 کد تطبیق یکتا: <b>۱ تا ۹۹۹ تومان</b>",
+            f"💳 مبلغ پیش از کد تطبیق: <b>{money_toman(nominal_payable_rial)}</b>",
+            "",
+            f"🏦 کارت مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
+            f"⚙️ سیاست کارمزد: <b>{fee_title(mode)}</b>",
+            f"⏱ اعتبار لینک: <b>{settings.invoice_ttl_minutes} دقیقه</b>",
+        ],
+        subtitle="آخرین مرحله پیش از صدور لینک پرداخت",
+        footer="پس از صدور، هزینه تأیید در کیف پول رزرو می‌شود و در صورت لغو یا انقضا آزاد خواهد شد.",
+    )
 
     if edit:
         await target.edit_text(preview, reply_markup=invoice_confirm_menu())
     else:
         await target.answer(preview, reply_markup=invoice_confirm_menu())
 
-
 @router.callback_query(F.data == "invoice:confirm")
 async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
     if await state.get_state() != ManualInvoiceState.confirm.state:
-        return await callback.answer("اطلاعات فاکتور منقضی شده؛ لطفاً فرایند را دوباره آغاز کنید.", show_alert=True)
+        return await callback.answer("اطلاعات فاکتور منقضی شده است؛ دوباره شروع کنید.", show_alert=True)
 
     data = await state.get_data()
     await state.set_state(ManualInvoiceState.processing)
@@ -649,269 +743,283 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
 
         payment_url = f"{settings.base_url}/pay/{invoice.token}"
         await state.clear()
-        await callback.message.edit_text(
-            f"""✅ <b>فاکتور ایجاد شد</b>
-━━━━━━━━━━━━━━━━
-📝 عنوان: <b>{html.escape(invoice.description or '-')}</b>
-🧾 شناسه پرداخت: <code>{invoice.token}</code>
-💳 مبلغ دقیق واریز: <b>{toman(invoice.payable_amount_rial)} تومان</b>
-🔢 کد تطبیق: <b>+{toman(invoice.unique_amount_rial)} تومان</b>
-🏦 کارت مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
-⏳ وضعیت: <b>در انتظار پرداخت</b>
-━━━━━━━━━━━━━━━━
-🔗 لینک پرداخت:
-{payment_url}""",
-            reply_markup=payment_created_menu(payment_url),
+        text = success(
+            "فاکتور آماده دریافت وجه است",
+            "\n".join([
+                f"📝 عنوان: <b>{esc(invoice.description or '-')}</b>",
+                f"🧾 شناسه پرداخت: <code>{invoice.token}</code>",
+                f"💳 مبلغ دقیق واریز: <b>{money_toman(invoice.payable_amount_rial)}</b>",
+                f"🔢 کد تطبیق: <b>+{money_toman(invoice.unique_amount_rial)}</b>",
+                f"🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
+                f"⏳ وضعیت: <b>{badge('pending')}</b>",
+                "",
+                f"🔗 لینک پرداخت:\n{payment_url}",
+            ]),
+            footer="لینک را برای مشتری ارسال کنید. وضعیت پرداخت پس از دریافت پیامک بانک به‌صورت خودکار به‌روزرسانی می‌شود.",
         )
-        await callback.answer("فاکتور ایجاد شد.")
+        await callback.message.edit_text(text, reply_markup=payment_created_menu(payment_url))
+        await callback.answer("فاکتور صادر شد.")
     except Exception as exc:
         await state.set_state(ManualInvoiceState.confirm)
-        await callback.answer("ایجاد فاکتور ناموفق بود.", show_alert=True)
+        await callback.answer("صدور فاکتور ناموفق بود.", show_alert=True)
         await callback.message.edit_text(
-            f"""❌ <b>ایجاد فاکتور انجام نشد</b>
-━━━━━━━━━━━━━━━━
-علت: <code>{html.escape(str(exc))}</code>
-
-اطلاعات واردشده حفظ شده است؛ پس از رفع مشکل دوباره تأیید کنید.""",
+            error(
+                "فاکتور صادر نشد",
+                f"کد خطا: <code>{esc(str(exc))}</code>",
+                footer="اطلاعات این فاکتور حفظ شده است؛ پس از رفع مشکل دوباره تأیید کنید.",
+            ),
             reply_markup=invoice_confirm_menu(),
         )
+
 @router.callback_query(F.data == "connect")
 async def connection_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
     docs_url = merchant_docs_url(merchant)
-    callback_status = "🟢 متصل" if merchant.callback_url else "🟡 تنظیم نشده"
-    api_status = "🟢 ساخته شده" if merchant.api_key_prefix else "🟡 ساخته نشده"
-    await callback.message.edit_text(
-        f"""🔌 <b>اتصال و مستندات</b>
-━━━━━━━━━━━━━━━━
-در این بخش می‌توانید سایت، ربات و برنامه SMS Forwarder را به BluePay متصل کنید.
-
-<b>وضعیت سرویس‌ها</b>
-🔑 کلید API: <b>{api_status}</b>
-📲 وبهوک پیامک بانکی: <b>🟢 آماده</b>
-🔔 Callback نتیجه پرداخت: <b>{callback_status}</b>
-
-<b>مراحل پیشنهادی راه‌اندازی</b>
-1️⃣ کلید API را ایجاد کنید.
-2️⃣ وبهوک پیامک را در گوشی ثبت کنید.
-3️⃣ آدرس Callback سایت یا ربات را وارد کنید.
-4️⃣ با استفاده از مستندات، یک پرداخت آزمایشی انجام دهید.
-━━━━━━━━━━━━━━━━
-📘 مستندات اختصاصی حساب:
-<code>{html.escape(docs_url)}</code>""",
-        reply_markup=connection_menu(docs_url),
+    callback_status = badge("configured" if merchant.callback_url else "missing")
+    api_status = badge("configured" if merchant.api_key_prefix else "missing")
+    ready_count = int(bool(merchant.api_key_prefix)) + int(bool(merchant.callback_url)) + 1
+    text = panel(
+        "🔌",
+        "مرکز اتصال و توسعه‌دهندگان",
+        [
+            f"📈 پیشرفت راه‌اندازی: <b>{ready_count} از 3 سرویس</b>",
+            "",
+            f"🔑 دسترسی API: <b>{api_status}</b>",
+            f"📲 دریافت پیامک بانکی: <b>{badge('ready')}</b>",
+            f"🔔 Callback نتیجه پرداخت: <b>{callback_status}</b>",
+            "",
+            "<b>مسیر پیشنهادی اتصال</b>",
+            "1️⃣ کلید API را ایجاد و در سرور خود ذخیره کنید.",
+            "2️⃣ وبهوک اختصاصی پیامک را در گوشی متصل کنید.",
+            "3️⃣ آدرس Callback سایت یا ربات را ثبت و آزمایش کنید.",
+            "4️⃣ از مستندات اختصاصی یک فاکتور آزمایشی بسازید.",
+            "",
+            f"📘 مستندات حساب:\n<code>{esc(docs_url)}</code>",
+        ],
+        subtitle="اتصال امن سایت، ربات و SMS Forwarder",
+        footer="تمام نشانی‌ها و کلیدهای این بخش اختصاصی حساب شما هستند.",
     )
+    await callback.message.edit_text(text, reply_markup=connection_menu(docs_url))
     await callback.answer()
-
 
 @router.callback_query(F.data == "api")
 async def api_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
-    prefix = merchant.api_key_prefix or "ساخته نشده"
-    callback_secret = merchant.callback_secret or "ساخته نشده"
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+    prefix = merchant.api_key_prefix or "ایجاد نشده"
     callback_url = merchant.callback_url or "تنظیم نشده"
     docs_url = merchant_docs_url(merchant)
-    await callback.message.edit_text(
-        f"""🔑 <b>دسترسی API</b>
-━━━━━━━━━━━━━━━━
-🪪 پیشوند کلید: <code>{html.escape(prefix)}</code>
-🌐 آدرس پایه: <code>{settings.base_url}/api/v1</code>
-🔐 کلید امضای Callback: <code>{html.escape(callback_secret)}</code>
-🔔 Callback پیش‌فرض: <code>{html.escape(callback_url)}</code>
-━━━━━━━━━━━━━━━━
-کلید کامل API تنها هنگام ایجاد نمایش داده می‌شود. آن را در محیط امن نگهداری کنید.
-
-هدر احراز هویت:
-<code>X-API-Key: gw_...</code>""",
-        reply_markup=api_menu(docs_url),
+    text = panel(
+        "🔑",
+        "دسترسی API",
+        [
+            f"📡 وضعیت: <b>{badge('configured' if merchant.api_key_prefix else 'missing')}</b>",
+            f"🪪 پیشوند کلید: <code>{esc(prefix)}</code>",
+            f"🌐 آدرس پایه: <code>{settings.base_url}/api/v1</code>",
+            f"🔔 Callback پیش‌فرض: <code>{esc(callback_url)}</code>",
+            "",
+            "<b>هدر احراز هویت</b>",
+            "<code>X-API-Key: gw_your_private_key</code>",
+        ],
+        subtitle="ساخت فاکتور و استعلام پرداخت از سایت یا ربات",
+        footer="کلید کامل فقط هنگام ایجاد نمایش داده می‌شود. آن را در کد سمت کاربر یا مخزن عمومی قرار ندهید.",
     )
+    await callback.message.edit_text(text, reply_markup=api_menu(docs_url))
     await callback.answer()
-
 
 @router.callback_query(F.data == "api:regen")
 async def api_regen(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
         if not merchant:
-            return await callback.answer("حساب کاربری یافت نشد.", show_alert=True)
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
         key = await regenerate_api_key(session, merchant)
         await session.commit()
     await callback.message.answer(
-        "🔐 <b>کلید API جدید ایجاد شد</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "این کلید فقط یک‌بار نمایش داده می‌شود. لطفاً آن را در محل امن ذخیره کنید:\n\n"
-        f"<code>{key}</code>\n\n"
-        "در تمام درخواست‌های سایت یا ربات، این مقدار را در هدر <code>X-API-Key</code> ارسال کنید."
+        success(
+            "کلید API جدید صادر شد",
+            "\n".join([
+                "این کلید فقط همین یک‌بار نمایش داده می‌شود:",
+                "",
+                f"<code>{key}</code>",
+                "",
+                "هدر درخواست‌ها:",
+                "<code>X-API-Key: YOUR_KEY</code>",
+            ]),
+            footer="کلید را فقط در Backend یا تنظیمات محرمانه ربات نگهداری کنید؛ ایجاد کلید جدید، کلید قبلی را باطل می‌کند.",
+        )
     )
-    await callback.answer("کلید API ایجاد شد.")
-
+    await callback.answer("کلید جدید ایجاد شد.")
 
 @router.callback_query(F.data == "sms:webhook")
 async def sms_info(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
     webhook_url = merchant_sms_webhook_url(merchant)
     docs_url = merchant_docs_url(merchant)
-    await callback.message.edit_text(
-        f"""📲 <b>وبهوک اختصاصی پیامک بانکی</b>
-━━━━━━━━━━━━━━━━
-این نشانی به حساب شما اختصاص دارد و پیامک‌های دریافتی فقط با کارت‌ها و فاکتورهای همین حساب تطبیق داده می‌شوند.
-
-🌐 <b>نشانی وبهوک</b>
-<code>{html.escape(webhook_url)}</code>
-
-⚙️ <b>تنظیمات درخواست</b>
-• روش: <code>POST</code>
-• نوع بدنه: <code>JSON</code>
-• Header: نیاز نیست
-
-📦 <b>بدنه پیشنهادی</b>
-<code>{{"device_id":"phone-1","sender":"{{in-number}}","message":"{{msg}}","received_time":"{{time}}","incoming_sim":"{{in-sim}}"}}</code>
-
-متغیرهای <code>{{in-number}}</code>، <code>{{msg}}</code>، <code>{{time}}</code> و <code>{{in-sim}}</code> را با دکمه <b>{{}}</b> داخل برنامه درج کنید؛ آن‌ها را به‌صورت متن معمولی تایپ نکنید.
-
-<b>مراحل راه‌اندازی</b>
-1️⃣ روش درخواست را روی <code>POST</code> قرار دهید.
-2️⃣ نشانی وبهوک را بدون تغییر وارد کنید.
-3️⃣ نوع Body را روی <code>JSON</code> قرار دهید.
-4️⃣ بدنه بالا را وارد و متغیرها را از فهرست داخلی برنامه انتخاب کنید.
-5️⃣ تنظیمات را ذخیره کنید و یک پیامک جدید را آزمایش کنید.
-
-🏦 بانک از شماره فرستنده و متن پیامک تشخیص داده می‌شود؛ ارسال <code>bank_code</code> الزامی نیست.
-🏦 پوشش فعلی: <b>{len(BANK_PROFILES)} بانک، مؤسسه و برند بانکی</b>
-━━━━━━━━━━━━━━━━
-🔐 این نشانی محرمانه است و نباید در اختیار دیگران قرار گیرد.""",
-        reply_markup=sms_webhook_menu(docs_url),
+    payload = '{"device_id":"phone-1","sender":"{in-number}","message":"{msg}","received_time":"{time}","incoming_sim":"{in-sim}"}'
+    text = panel(
+        "📲",
+        "وبهوک اختصاصی پیامک بانکی",
+        [
+            "<b>نشانی محرمانه وبهوک</b>",
+            f"<code>{esc(webhook_url)}</code>",
+            "",
+            "<b>تنظیم درخواست</b>",
+            "• Method: <code>POST</code>",
+            "• Body: <code>JSON</code>",
+            "• Header دستی: نیاز نیست",
+            "",
+            "<b>بدنه استاندارد</b>",
+            f"<code>{esc(payload)}</code>",
+            "",
+            "<b>راهنمای کوتاه</b>",
+            "1️⃣ متغیرهای <code>{in-number}</code> و <code>{msg}</code> را با دکمه <b>{}</b> خود برنامه درج کنید.",
+            "2️⃣ فقط یک نوع پیام، ترجیحاً SMS، برای هر فیلتر فعال باشد.",
+            "3️⃣ تنظیم را ذخیره و با یک پیامک جدید آزمایش کنید؛ Retry پیام قدیمی ممکن است بدنه قبلی را بفرستد.",
+            f"4️⃣ موتور تشخیص از <b>{len(BANK_PROFILES)}</b> بانک و برند بانکی پشتیبانی می‌کند.",
+        ],
+        subtitle="تأیید خودکار واریز با پیامک واقعی بانک",
+        footer="این URL نقش کلید امنیتی دارد؛ آن را منتشر یا برای شخص دیگری ارسال نکنید.",
     )
+    await callback.message.edit_text(text, reply_markup=sms_webhook_menu(docs_url))
     await callback.answer()
-
 
 @router.callback_query(F.data == "callback:panel")
 async def callback_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
-        return await callback.answer("ابتدا دستور /start را ارسال کنید.", show_alert=True)
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
     docs_url = merchant_docs_url(merchant)
-    status = "🟢 فعال" if merchant.callback_url else "🟡 تنظیم نشده"
-    await callback.message.edit_text(
-        f"""🔔 <b>Callback نتیجه پرداخت</b>
-━━━━━━━━━━━━━━━━
-پس از تأیید پرداخت، نتیجه به نشانی ثبت‌شده در سایت یا ربات شما ارسال می‌شود.
-
-📡 وضعیت: <b>{status}</b>
-🌐 نشانی فعلی: <code>{html.escape(merchant.callback_url or 'تنظیم نشده')}</code>
-🔐 کلید امضا: <code>{html.escape(merchant.callback_secret or 'ساخته نشده')}</code>
-
-<b>هدرهای امنیتی</b>
-<code>X-Gateway-Signature</code>
-<code>X-Gateway-Event</code>
-<code>X-Gateway-Delivery</code>
-━━━━━━━━━━━━━━━━
-سرور مقصد باید در مهلت تعیین‌شده، پاسخ HTTP از خانواده 2xx برگرداند.""",
-        reply_markup=callback_menu(docs_url, bool(merchant.callback_url)),
+    status = badge("configured" if merchant.callback_url else "missing")
+    text = panel(
+        "🔔",
+        "Callback نتیجه پرداخت",
+        [
+            f"📡 وضعیت اتصال: <b>{status}</b>",
+            f"🌐 نشانی مقصد: <code>{esc(merchant.callback_url or 'تنظیم نشده')}</code>",
+            f"🔐 Secret امضا: <code>{esc(merchant.callback_secret or 'ایجاد نشده')}</code>",
+            "",
+            "<b>هدرهای ارسال‌شده</b>",
+            "<code>X-Gateway-Signature</code>",
+            "<code>X-Gateway-Event</code>",
+            "<code>X-Gateway-Delivery</code>",
+            "<code>X-Gateway-Timestamp</code>",
+        ],
+        subtitle="اعلام آنی پرداخت موفق به سایت یا ربات شما",
+        footer="سرور مقصد باید HTTPS عمومی داشته باشد و حداکثر ظرف ۱۲ ثانیه پاسخ 2xx برگرداند.",
     )
+    await callback.message.edit_text(text, reply_markup=callback_menu(docs_url, bool(merchant.callback_url)))
     await callback.answer()
-
 
 @router.callback_query(F.data == "callback:set")
 async def callback_set_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CallbackConfigState.url)
     await callback.message.edit_text(
-        """✏️ <b>ثبت نشانی Callback</b>
-━━━━━━━━━━━━━━━━
-نشانی HTTPS دریافت نتیجه پرداخت را ارسال کنید.
-
-نمونه:
-<code>https://example.com/api/bluepay/webhook</code>
-
-نشانی باید از اینترنت در دسترس باشد و حداکثر در ۱۲ ثانیه پاسخ دهد.""",
+        panel(
+            "🔔",
+            "ثبت نشانی Callback",
+            [
+                "نشانی HTTPS عمومی سرور دریافت نتیجه را ارسال کنید.",
+                "نمونه:",
+                "<code>https://example.com/api/bluepay/webhook</code>",
+            ],
+            subtitle="اعلام پرداخت موفق به سایت یا ربات پذیرنده",
+            footer="نشانی‌های localhost، IP خصوصی و HTTP ناامن پذیرفته نمی‌شوند.",
+        ),
         reply_markup=flow_cancel_menu(),
     )
     await callback.answer()
-
 
 @router.message(CallbackConfigState.url)
 async def callback_set_value(message: Message, state: FSMContext):
     valid, result = validate_callback_url(message.text or "")
     if not valid:
-        return await message.answer(f"⚠️ {html.escape(result)}\nلطفاً نشانی معتبر را دوباره ارسال کنید:", reply_markup=flow_cancel_menu())
+        return await message.answer(
+            warning("نشانی Callback معتبر نیست", esc(result), footer="یک نشانی HTTPS عمومی وارد کنید."),
+            reply_markup=flow_cancel_menu(),
+        )
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
         if not merchant:
             await state.clear()
-            return await message.answer("حساب کاربری یافت نشد. لطفاً دستور /start را ارسال کنید.")
+            return await message.answer(error("حساب پذیرنده یافت نشد", "دستور /start را ارسال و دوباره تلاش کنید."))
         merchant.callback_url = result
         if not merchant.callback_secret:
             merchant.callback_secret = random_secret(32)
         await session.commit()
     await state.clear()
     await message.answer(
-        f"""✅ <b>نشانی Callback ذخیره شد</b>
-━━━━━━━━━━━━━━━━
-🌐 نشانی ثبت‌شده:
-<code>{html.escape(result)}</code>
-
-برای اطمینان از صحت اتصال، از بخش «اتصال و مستندات» یک درخواست آزمایشی ارسال کنید.""",
+        success(
+            "Callback با موفقیت ثبت شد",
+            f"🌐 نشانی مقصد:\n<code>{esc(result)}</code>",
+            footer="برای اطمینان از صحت اتصال، از مرکز اتصال یک رویداد آزمایشی ارسال کنید.",
+        ),
         reply_markup=main_menu(merchant.is_admin),
     )
-
 
 @router.callback_query(F.data == "callback:remove")
 async def callback_remove(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
         if not merchant:
-            return await callback.answer("حساب کاربری یافت نشد.", show_alert=True)
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
         merchant.callback_url = None
         await session.commit()
-    await callback.answer("Callback حذف شد", show_alert=True)
     await callback.message.edit_text(
-        "✅ آدرس Callback حذف شد. تا زمان ثبت آدرس جدید، نتیجه پرداخت فقط از طریق استعلام API قابل دریافت است.",
+        success(
+            "نشانی Callback حذف شد",
+            "تا زمان ثبت نشانی جدید، نتیجه پرداخت را از طریق API استعلام کنید.",
+        ),
         reply_markup=connection_menu(merchant_docs_url(merchant)),
     )
-
+    await callback.answer("Callback حذف شد.")
 
 @router.callback_query(F.data == "callback:secret")
 async def callback_secret_regen(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
         if not merchant:
-            return await callback.answer("حساب کاربری یافت نشد.", show_alert=True)
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
         merchant.callback_secret = random_secret(32)
         await session.commit()
         secret = merchant.callback_secret
     await callback.message.answer(
-        "🔐 <b>Secret جدید ساخته شد</b>\n\n"
-        f"<code>{html.escape(secret)}</code>\n\n"
-        "⚠️ با بازنشانی کلید امضا، نشانی وبهوک پیامک و مستندات اختصاصی نیز تغییر می‌کند. نشانی‌های جدید را از بخش «اتصال و مستندات» دریافت کنید."
+        warning(
+            "Secret امضا بازنشانی شد",
+            f"Secret جدید:\n<code>{esc(secret)}</code>",
+            footer="Secret قبلی دیگر معتبر نیست. همچنین نشانی وبهوک پیامک و مستندات اختصاصی تغییر کرده‌اند؛ نشانی‌های جدید را از مرکز اتصال دریافت کنید.",
+        )
     )
-    await callback.answer("کلید امضا بازنشانی شد.")
-
+    await callback.answer("Secret جدید ایجاد شد.")
 
 @router.callback_query(F.data == "callback:test")
 async def callback_test(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant or not merchant.callback_url:
         return await callback.answer("ابتدا نشانی Callback را ثبت کنید.", show_alert=True)
-    await callback.answer("در حال ارسال تست…")
+    await callback.answer("در حال آزمایش اتصال…")
     ok, result = await send_test_callback(merchant)
     if ok:
         await callback.message.answer(
-            "✅ <b>تست Callback موفق بود</b>\n\n"
-            f"آدرس مقصد با موفقیت پاسخ داد: <code>{html.escape(result)}</code>"
+            success(
+                "آزمایش Callback موفق بود",
+                f"سرور مقصد پاسخ معتبر برگرداند: <code>{esc(result)}</code>",
+                footer="اتصال برای دریافت رویدادهای پرداخت آماده است.",
+            )
         )
     else:
         await callback.message.answer(
-            "❌ <b>تست Callback ناموفق بود</b>\n\n"
-            f"نتیجه: <code>{html.escape(result)}</code>\n"
-            "لاگ سرور مقصد، گواهی SSL و کد پاسخ HTTP را بررسی کنید."
+            error(
+                "آزمایش Callback ناموفق بود",
+                f"نتیجه: <code>{esc(result)}</code>",
+                footer="گواهی SSL، دسترس‌پذیری عمومی، زمان پاسخ و لاگ سرور مقصد را بررسی کنید.",
+            )
         )
-
 
 @router.message(Command("credit"))
 async def admin_credit(message: Message):
@@ -1106,14 +1214,14 @@ async def release_upload(message: Message):
         repository = settings.github_repository
         branch = settings.github_branch
     if not message.document.file_name.lower().endswith(".zip"):
-        return await message.answer("فقط فایل ZIP نسخه جدید پذیرفته می‌شود.")
+        return await message.answer(warning("فرمت فایل پشتیبانی نمی‌شود", "فقط بسته ZIP نسخه جدید پذیرفته می‌شود."))
 
-    status = await message.answer("📦 در حال بررسی بسته نسخه...")
+    status = await message.answer(info("در حال بررسی بسته", "ساختار فایل و اطلاعات نسخه در حال اعتبارسنجی است."))
     buffer = io.BytesIO()
     await message.bot.download(message.document, destination=buffer)
     try:
         package = validate_release_zip(buffer.getvalue())
-        await status.edit_text(f"✅ بسته نسخه {html.escape(package.version)} معتبر است. در حال انتشار در GitHub...")
+        await status.edit_text(info("بسته معتبر است", f"نسخه <code>{esc(package.version)}</code> در حال انتشار در GitHub است."))
         publisher = GitHubPublisher(settings.github_token, repository, branch or "main")
         commit_sha = await publisher.publish(package)
         async with SessionLocal() as session:
@@ -1128,9 +1236,16 @@ async def release_upload(message: Message):
             )
             await session.commit()
         await status.edit_text(
-            "🚀 نسخه در GitHub منتشر شد. Railway باید Deploy خودکار را آغاز کند.\n\n"
-            f"نسخه: <code>{html.escape(package.version)}</code>\n"
-            f"Commit: <code>{commit_sha[:12]}</code>"
+            success(
+                "نسخه در GitHub منتشر شد",
+                "\n".join([
+                    f"📦 نسخه: <code>{esc(package.version)}</code>",
+                    f"🔖 Commit: <code>{commit_sha[:12]}</code>",
+                    "🚄 Railway باید استقرار خودکار را آغاز کند.",
+                ]),
+                footer="تا موفق‌شدن Healthcheck، نسخه فعال قبلی به کار خود ادامه می‌دهد.",
+            )
         )
     except Exception as exc:
-        await status.edit_text(f"❌ انتشار نسخه ناموفق بود:\n<code>{html.escape(str(exc))}</code>")
+        await status.edit_text(error("انتشار نسخه ناموفق بود", f"<code>{esc(str(exc))}</code>"))
+

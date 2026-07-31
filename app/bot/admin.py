@@ -14,7 +14,19 @@ from sqlalchemy.orm import joinedload
 
 from app.bot.keyboards import admin_menu, main_menu
 from app.bot.states import AdminFeeState, AdminSmsApproveState, AdminWalletAdjustState
-from app.bot.presentation import fee_mode_label, invoice_status_label, sms_result_label
+from app.bot.presentation import (
+    badge,
+    error,
+    esc,
+    fee_mode_label,
+    info,
+    invoice_status_label,
+    money_toman,
+    panel,
+    sms_result_label,
+    success,
+    warning,
+)
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
@@ -94,19 +106,39 @@ def invoices_keyboard(invoices: list[Invoice], back_data: str = "admin:panel") -
 async def admin_command(message: Message):
     if not await require_admin_message(message):
         return
-    await message.answer("👑 <b>مدیریت سامانه BluePay</b>\n━━━━━━━━━━━━━━━━\nلطفاً یکی از بخش‌های زیر را انتخاب کنید.", reply_markup=admin_menu())
-
+    await message.answer(
+        panel(
+            "👑",
+            "مرکز مدیریت بلوپی",
+            [
+                "مدیریت پذیرندگان، تراکنش‌ها، کیف پول‌ها و سلامت زیرساخت از این بخش انجام می‌شود.",
+                "برای عملیات حساس، ابتدا جزئیات رکورد را بررسی و سپس اقدام کنید.",
+            ],
+            subtitle="کنترل متمرکز سامانه پرداخت",
+        ),
+        reply_markup=admin_menu(),
+    )
 
 @router.callback_query(F.data == "admin:panel")
 async def admin_panel(callback: CallbackQuery):
     if not await require_admin_callback(callback):
         return
     await callback.message.edit_text(
-        "👑 <b>مدیریت سامانه BluePay</b>\n━━━━━━━━━━━━━━━━\nمدیریت پذیرندگان، کیف پول‌ها، فاکتورها، پیامک‌های بانکی و وضعیت سامانه از این بخش انجام می‌شود.",
+        panel(
+            "👑",
+            "مرکز مدیریت بلوپی",
+            [
+                "• پایش وضعیت کسب‌وکار و تراکنش‌ها",
+                "• مدیریت پذیرندگان و اعتبار کیف پول",
+                "• بررسی پیامک‌های بانکی و تطبیق دستی",
+                "• کنترل نسخه، پشتیبان‌گیری و سلامت سرویس",
+            ],
+            subtitle="داشبورد عملیاتی مدیر سامانه",
+            footer="یکی از بخش‌های مدیریتی را انتخاب کنید.",
+        ),
         reply_markup=admin_menu(),
     )
     await callback.answer()
-
 
 @router.callback_query(F.data == "admin:dashboard")
 async def admin_dashboard(callback: CallbackQuery):
@@ -127,21 +159,34 @@ async def admin_dashboard(callback: CallbackQuery):
         paid_total = await session.scalar(
             select(func.coalesce(func.sum(Invoice.payable_amount_rial), 0)).where(Invoice.status == "paid")
         ) or 0
-    text = (
-        "📊 <b>داشبورد مدیریتی</b>\n━━━━━━━━━━━━━━━━\n"
-        f"👥 پذیرندگان: <b>{merchants:,}</b> (فعال: {active_merchants:,})\n"
-        f"🏦 کارت‌های ثبت‌شده: <b>{cards:,}</b>\n"
-        f"🧾 کل فاکتورها: <b>{invoices:,}</b>\n"
-        f"⏳ در انتظار: <b>{pending:,}</b>\n"
-        f"✅ پرداخت‌شده: <b>{paid:,}</b>\n"
-        f"🔎 نیازمند بررسی: <b>{review:,}</b>\n\n"
-        f"💰 مجموع کیف پول‌ها: <b>{toman(wallet_total)} تومان</b>\n"
-        f"🔒 مجموع رزروشده: <b>{toman(reserved_total)} تومان</b>\n"
-        f"💳 مجموع مبالغ تأییدشده: <b>{toman(paid_total)} تومان</b>"
+
+    conversion = round((paid / invoices) * 100, 1) if invoices else 0
+    text = panel(
+        "📊",
+        "نمای مدیریتی سامانه",
+        [
+            "<b>پذیرندگان و زیرساخت</b>",
+            f"👥 کل پذیرندگان: <b>{merchants:,}</b>",
+            f"🟢 حساب‌های فعال: <b>{active_merchants:,}</b>",
+            f"💳 کارت‌های ثبت‌شده: <b>{cards:,}</b>",
+            "",
+            "<b>عملکرد پرداخت</b>",
+            f"🧾 کل فاکتورها: <b>{invoices:,}</b>",
+            f"🕓 در انتظار پرداخت: <b>{pending:,}</b>",
+            f"✅ پرداخت‌های موفق: <b>{paid:,}</b>",
+            f"📈 نرخ تبدیل: <b>{conversion}%</b>",
+            f"🔎 نیازمند بررسی: <b>{review:,}</b>",
+            "",
+            "<b>شاخص‌های مالی</b>",
+            f"💼 مجموع اعتبار کیف پول: <b>{money_toman(wallet_total)}</b>",
+            f"🔒 اعتبار رزروشده: <b>{money_toman(reserved_total)}</b>",
+            f"💰 حجم پرداخت تأییدشده: <b>{money_toman(paid_total)}</b>",
+        ],
+        subtitle="نمای لحظه‌ای عملیات و سلامت کسب‌وکار",
+        footer="آمار بر پایه داده‌های ثبت‌شده در پایگاه داده فعلی محاسبه شده است.",
     )
     await callback.message.edit_text(text, reply_markup=admin_menu())
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:merchants:"))
 async def admin_merchants(callback: CallbackQuery):
@@ -165,7 +210,7 @@ async def admin_merchants(callback: CallbackQuery):
     rows = [
         [
             InlineKeyboardButton(
-                text=f"{'🟢' if item.is_active else '🔴'} {short(item.name, 18)} • {item.telegram_user_id}",
+                text=f"{'🟢' if item.is_active else '🔴'} {short(item.name, 18)}  •  BP-{item.id:06d}",
                 callback_data=f"admin:merchant:{item.id}:{page}",
             )
         ]
@@ -173,18 +218,26 @@ async def admin_merchants(callback: CallbackQuery):
     ]
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"admin:merchants:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="‹ قبلی", callback_data=f"admin:merchants:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"))
     if page + 1 < pages:
-        nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"admin:merchants:{page + 1}"))
-    if nav:
-        rows.append(nav)
-    rows.append([InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")])
+        nav.append(InlineKeyboardButton(text="بعدی ›", callback_data=f"admin:merchants:{page + 1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="‹ مرکز مدیریت", callback_data="admin:panel")])
     await callback.message.edit_text(
-        f"👥 <b>پذیرندگان</b>\n\nصفحه {page + 1} از {pages} • مجموع {total:,}",
+        panel(
+            "👥",
+            "مدیریت پذیرندگان",
+            [
+                f"مجموع حساب‌ها: <b>{total:,}</b>",
+                f"صفحه جاری: <b>{page + 1} از {pages}</b>",
+                "برای مشاهده وضعیت مالی و تنظیمات هر پذیرنده، حساب را انتخاب کنید.",
+            ],
+            subtitle="حساب‌ها، اعتبار و دسترسی سرویس",
+        ),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:merchant:"))
 async def admin_merchant_detail(callback: CallbackQuery):
@@ -197,36 +250,41 @@ async def admin_merchant_detail(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.get(Merchant, merchant_id)
         if not merchant:
-            return await callback.answer("پذیرنده پیدا نشد.", show_alert=True)
+            return await callback.answer("پذیرنده یافت نشد.", show_alert=True)
         cards_count = await session.scalar(select(func.count(BankCard.id)).where(BankCard.merchant_id == merchant.id)) or 0
         invoice_count = await session.scalar(select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id)) or 0
         paid_count = await session.scalar(
             select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "paid")
         ) or 0
-    text = (
-        "👤 <b>مشخصات پذیرنده</b>\n━━━━━━━━━━━━━━━━\n"
-        f"شناسه داخلی: <code>{merchant.id}</code>\n"
-        f"Telegram ID: <code>{merchant.telegram_user_id}</code>\n"
-        f"نام: {html.escape(merchant.name)}\n"
-        f"وضعیت: {'🟢 فعال' if merchant.is_active else '🔴 غیرفعال'}\n"
-        f"سطح: {'👑 مدیر' if merchant.is_admin else 'پذیرنده'}\n\n"
-        f"موجودی: <b>{toman(merchant.wallet_balance_rial)} تومان</b>\n"
-        f"رزروشده: {toman(merchant.reserved_balance_rial)} تومان\n"
-        f"قابل استفاده: {toman(merchant.available_balance_rial)} تومان\n"
-        f"کارمزد هر تأیید: {toman(merchant.verification_fee_rial)} تومان\n"
-        f"مدل کارمزد: <b>{html.escape(fee_mode_label(merchant.fee_mode))}</b>\n"
-        f"API: <code>{html.escape(merchant.api_key_prefix or 'ساخته نشده')}</code>\n"
-        f"Callback: <code>{html.escape(short(merchant.callback_url, 42))}</code>\n\n"
-        f"وبهوک پیامک:\n<code>{html.escape(merchant_sms_webhook_url(merchant))}</code>\n\n"
-        f"مستندات اختصاصی:\n<code>{html.escape(merchant_docs_url(merchant))}</code>\n\n"
-        f"کارت‌ها: {cards_count:,} • فاکتورها: {invoice_count:,} • پرداخت‌شده: {paid_count:,}"
+    text = panel(
+        "👤",
+        "پرونده پذیرنده",
+        [
+            f"🪪 شناسه پذیرنده: <code>BP-{merchant.id:06d}</code>",
+            f"💬 Telegram ID: <code>{merchant.telegram_user_id}</code>",
+            f"🏷 نام حساب: <b>{esc(merchant.name)}</b>",
+            f"📡 وضعیت: <b>{badge('active' if merchant.is_active else 'inactive')}</b>",
+            f"🛡 سطح دسترسی: <b>{'مدیر سامانه' if merchant.is_admin else 'پذیرنده'}</b>",
+            "",
+            "<b>وضعیت مالی</b>",
+            f"💼 موجودی کل: <b>{money_toman(merchant.wallet_balance_rial)}</b>",
+            f"🔒 رزروشده: <b>{money_toman(merchant.reserved_balance_rial)}</b>",
+            f"✅ قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
+            f"🧾 هزینه هر تأیید: <b>{money_toman(merchant.verification_fee_rial)}</b>",
+            f"⚙️ مدل کارمزد: <b>{esc(fee_mode_label(merchant.fee_mode))}</b>",
+            "",
+            "<b>وضعیت اتصال</b>",
+            f"🔑 API: <code>{esc(merchant.api_key_prefix or 'ایجاد نشده')}</code>",
+            f"🔔 Callback: <code>{esc(short(merchant.callback_url, 46))}</code>",
+            f"📲 وبهوک پیامک:\n<code>{esc(merchant_sms_webhook_url(merchant))}</code>",
+            f"📚 مستندات:\n<code>{esc(merchant_docs_url(merchant))}</code>",
+            "",
+            f"📊 کارت‌ها: <b>{cards_count:,}</b>  •  فاکتورها: <b>{invoice_count:,}</b>  •  موفق: <b>{paid_count:,}</b>",
+        ],
+        subtitle="اطلاعات عملیاتی و مالی حساب",
     )
-    await callback.message.edit_text(
-        text,
-        reply_markup=merchant_detail_keyboard(merchant, page, callback.from_user.id),
-    )
+    await callback.message.edit_text(text, reply_markup=merchant_detail_keyboard(merchant, page, callback.from_user.id))
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:mtoggle:"))
 async def admin_toggle_merchant(callback: CallbackQuery):
@@ -363,10 +421,17 @@ async def admin_invoices(callback: CallbackQuery):
         return
     async with SessionLocal() as session:
         invoices = list((await session.scalars(select(Invoice).order_by(Invoice.id.desc()).limit(12))).all())
-    text = "🧾 <b>آخرین فاکتورها</b>\n\nبرای مشاهده جزئیات، یکی از فاکتورها را انتخاب کنید."
+    text = panel(
+        "🧾",
+        "فاکتورهای اخیر",
+        [
+            f"تعداد نمایش‌داده‌شده: <b>{len(invoices)}</b>",
+            "برای مشاهده مبلغ، پذیرنده، کارت مقصد و وضعیت نهایی، یک فاکتور را انتخاب کنید.",
+        ],
+        subtitle="آخرین درخواست‌های پرداخت سامانه",
+    )
     await callback.message.edit_text(text, reply_markup=invoices_keyboard(invoices))
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:minvoices:"))
 async def admin_merchant_invoices(callback: CallbackQuery):
@@ -396,35 +461,38 @@ async def admin_invoice_detail(callback: CallbackQuery):
     async with SessionLocal() as session:
         invoice = await session.get(Invoice, invoice_id)
         if not invoice:
-            return await callback.answer("فاکتور پیدا نشد.", show_alert=True)
+            return await callback.answer("فاکتور یافت نشد.", show_alert=True)
         merchant = await session.get(Merchant, invoice.merchant_id)
         card = await session.get(BankCard, invoice.card_id)
-    text = (
-        "🧾 <b>جزئیات فاکتور</b>\n━━━━━━━━━━━━━━━━\n"
-        f"شناسه داخلی: <code>{invoice.id}</code>\n"
-        f"Payment ID: <code>{invoice.token}</code>\n"
-        f"Order ID: <code>{html.escape(invoice.order_id)}</code>\n"
-        f"پذیرنده: {html.escape(merchant.name if merchant else '-')} (<code>{merchant.telegram_user_id if merchant else '-'}</code>)\n"
-        f"وضعیت: <b>{html.escape(invoice_status_label(invoice.status))}</b>\n"
-        f"مبلغ اصلی: {toman(invoice.base_amount_rial)} تومان\n"
-        f"کارمزد: {toman(invoice.fee_amount_rial)} تومان\n"
-        f"کد تطبیق مبلغ: +{toman(invoice.unique_amount_rial)} تومان\n"
-        f"پرداختی مشتری: <b>{toman(invoice.payable_amount_rial)} تومان</b>\n"
-        f"کارت مقصد: {html.escape(card.bank_code if card else '-')} • ****{card.card_last4 if card else '-'}\n"
-        f"مرجع: <code>{html.escape(invoice.reference_number or '-')}</code>"
+    text = panel(
+        "🧾",
+        "جزئیات فاکتور",
+        [
+            f"🪪 شناسه داخلی: <code>{invoice.id}</code>",
+            f"💳 Payment ID: <code>{invoice.token}</code>",
+            f"📦 Order ID: <code>{esc(invoice.order_id)}</code>",
+            f"👤 پذیرنده: <b>{esc(merchant.name if merchant else '-')}</b>",
+            f"📡 وضعیت: <b>{invoice_status_label(invoice.status)}</b>",
+            "",
+            f"💵 مبلغ پایه: <b>{money_toman(invoice.base_amount_rial)}</b>",
+            f"🧾 هزینه تأیید: <b>{money_toman(invoice.fee_amount_rial)}</b>",
+            f"🔢 کد تطبیق: <b>+{money_toman(invoice.unique_amount_rial)}</b>",
+            f"💰 مبلغ نهایی مشتری: <b>{money_toman(invoice.payable_amount_rial)}</b>",
+            "",
+            f"🏦 کارت مقصد: <b>{esc(card.bank_code if card else '-')} •••• {card.card_last4 if card else '-'}</b>",
+            f"🔖 شماره مرجع: <code>{esc(invoice.reference_number or '-')}</code>",
+        ],
+        subtitle="اطلاعات مالی و وضعیت تراکنش",
     )
     rows = []
     if invoice.status == "pending":
-        rows.append([InlineKeyboardButton(text="❌ لغو فاکتور", callback_data=f"admin:invoicecancel:{invoice.id}")])
-    rows.extend(
-        [
-            [InlineKeyboardButton(text="🧾 فهرست فاکتورها", callback_data="admin:invoices")],
-            [InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")],
-        ]
-    )
+        rows.append([InlineKeyboardButton(text="× لغو فاکتور", callback_data=f"admin:invoicecancel:{invoice.id}")])
+    rows.extend([
+        [InlineKeyboardButton(text="‹ فهرست فاکتورها", callback_data="admin:invoices")],
+        [InlineKeyboardButton(text="👑 مرکز مدیریت", callback_data="admin:panel")],
+    ])
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:invoicecancel:"))
 async def admin_invoice_cancel(callback: CallbackQuery):
@@ -467,21 +535,22 @@ async def admin_reviews(callback: CallbackQuery):
             ).all()
         )
     keyboard_rows = [
-        [
-            InlineKeyboardButton(
-                text=f"SMS #{row.id} • {row.bank_code} • {toman(row.amount_rial)} ت",
-                callback_data=f"admin:sms:{row.id}",
-            )
-        ]
+        [InlineKeyboardButton(text=f"#{row.id} • {row.bank_code} • {toman(row.amount_rial)} ت", callback_data=f"admin:sms:{row.id}")]
         for row in rows
     ]
-    keyboard_rows.append([InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")])
-    text = "🔎 <b>پیامک‌های نیازمند بررسی</b>\n\n" + (
-        "یکی از پیامک‌ها را برای بررسی انتخاب کنید." if rows else "موردی برای بررسی وجود ندارد."
+    keyboard_rows.append([InlineKeyboardButton(text="‹ مرکز مدیریت", callback_data="admin:panel")])
+    text = panel(
+        "🔎",
+        "صف بررسی تراکنش‌ها",
+        (
+            f"<b>{len(rows)}</b> پیامک برای بررسی دستی آماده است. هر مورد را فقط پس از تطبیق مبلغ، بانک و کارت تأیید کنید."
+            if rows else "در حال حاضر هیچ پیامکی نیازمند بررسی دستی نیست."
+        ),
+        subtitle="پیامک‌های مبهم یا بدون فاکتور منطبق",
+        footer="تأیید دستی یک پیامک، فاکتور را قطعی و Callback را فعال می‌کند.",
     )
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_rows))
     await callback.answer()
-
 
 @router.callback_query(lambda query: bool(query.data and query.data.startswith("admin:sms:") and query.data.count(":") == 2))
 async def admin_sms_detail(callback: CallbackQuery):
@@ -491,27 +560,32 @@ async def admin_sms_detail(callback: CallbackQuery):
     async with SessionLocal() as session:
         sms = await session.get(SmsTransaction, sms_id)
     if not sms:
-        return await callback.answer("پیامک پیدا نشد.", show_alert=True)
-    text = (
-        "📨 <b>جزئیات پیامک بانکی</b>\n━━━━━━━━━━━━━━━━\n"
-        f"شناسه: <code>{sms.id}</code>\n"
-        f"بانک: {html.escape(sms.bank_code)}\n"
-        f"مبلغ: <b>{toman(sms.amount_rial)} تومان</b>\n"
-        f"کارت: ****{sms.card_last4 or '-'}\n"
-        f"مرجع: <code>{html.escape(sms.reference_number or '-')}</code>\n"
-        f"وضعیت: <code>{sms.status}</code>\n"
-        f"اطمینان تشخیص: {sms.parse_confidence}%\n"
-        f"نتیجه بررسی: {html.escape(sms_result_label(sms.status))}\n\n"
-        f"<code>{html.escape(sms.raw_message[:700])}</code>"
+        return await callback.answer("پیامک یافت نشد.", show_alert=True)
+    text = panel(
+        "📨",
+        "جزئیات پیامک بانکی",
+        [
+            f"🪪 شناسه: <code>{sms.id}</code>",
+            f"🏦 بانک: <b>{esc(sms.bank_code)}</b>",
+            f"💵 مبلغ: <b>{money_toman(sms.amount_rial)}</b>",
+            f"💳 کارت: <code>•••• {sms.card_last4 or '-'}</code>",
+            f"🔖 مرجع: <code>{esc(sms.reference_number or '-')}</code>",
+            f"📡 وضعیت: <b>{sms_result_label(sms.status)}</b>",
+            f"🧠 اطمینان تشخیص: <b>{sms.parse_confidence}%</b>",
+            "",
+            "<b>متن پیامک</b>",
+            f"<blockquote>{esc(sms.raw_message[:700])}</blockquote>",
+        ],
+        subtitle="داده خام و نتیجه تحلیل موتور تطبیق",
+        footer="پیش از اتصال دستی، مبلغ و کارت مقصد فاکتور را دقیق بررسی کنید.",
     )
     rows = [
-        [InlineKeyboardButton(text="✅ اتصال به فاکتور", callback_data=f"admin:sms:approve:{sms.id}")],
-        [InlineKeyboardButton(text="❌ رد پیامک", callback_data=f"admin:sms:reject:{sms.id}")],
-        [InlineKeyboardButton(text="↩️ فهرست بررسی", callback_data="admin:reviews")],
+        [InlineKeyboardButton(text="✓ اتصال به فاکتور", callback_data=f"admin:sms:approve:{sms.id}")],
+        [InlineKeyboardButton(text="× رد پیامک", callback_data=f"admin:sms:reject:{sms.id}")],
+        [InlineKeyboardButton(text="‹ صف بررسی", callback_data="admin:reviews")],
     ]
     await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await callback.answer()
-
 
 @router.callback_query(F.data.startswith("admin:sms:reject:"))
 async def admin_sms_reject(callback: CallbackQuery):
@@ -643,30 +717,38 @@ async def admin_system(callback: CallbackQuery):
     backup = storage.status()
     async with SessionLocal() as session:
         last_update = await session.scalar(select(UpdateLog).order_by(UpdateLog.id.desc()).limit(1))
-    error = html.escape(str(backup.get("last_error") or "ندارد"))
-    text = (
-        "🖥 <b>وضعیت سامانه</b>\n━━━━━━━━━━━━━━━━\n"
-        f"نسخه برنامه: <code>{APP_VERSION}</code>\n"
-        f"دامنه: <code>{html.escape(settings.base_url)}</code>\n"
-        f"مخزن: <code>{html.escape(settings.github_repository)}</code>\n"
-        f"شاخه انتشار: <code>{html.escape(settings.github_branch)}</code>\n"
-        f"شاخه دیتابیس: <code>{html.escape(settings.data_branch)}</code>\n\n"
-        f"Backup در صف: {'بله' if backup.get('dirty') else 'خیر'}\n"
-        f"آخرین Backup: <code>{html.escape(str(backup.get('last_backup_at') or '-'))}</code>\n"
-        f"آخرین Restore: <code>{html.escape(str(backup.get('last_restore_at') or '-'))}</code>\n"
-        f"آخرین خطای ذخیره‌سازی: <code>{error[:500]}</code>\n\n"
-        f"آخرین نسخه منتشرشده: <code>{html.escape(last_update.version if last_update else '-')}</code>"
+    has_error = bool(backup.get("last_error"))
+    text = panel(
+        "🖥",
+        "سلامت و زیرساخت سامانه",
+        [
+            f"📦 نسخه فعال: <code>{APP_VERSION}</code>",
+            f"🌐 دامنه عمومی: <code>{esc(settings.base_url)}</code>",
+            f"🗂 مخزن: <code>{esc(settings.github_repository)}</code>",
+            f"🌿 شاخه انتشار: <code>{esc(settings.github_branch)}</code>",
+            f"🛡 شاخه پشتیبان داده: <code>{esc(settings.data_branch)}</code>",
+            "",
+            "<b>وضعیت ذخیره‌سازی</b>",
+            f"📡 سلامت: <b>{badge('failed' if has_error else 'active')}</b>",
+            f"🕓 پشتیبان در صف: <b>{'بله' if backup.get('dirty') else 'خیر'}</b>",
+            f"💾 آخرین Backup: <code>{esc(backup.get('last_backup_at') or '-')}</code>",
+            f"♻️ آخرین Restore: <code>{esc(backup.get('last_restore_at') or '-')}</code>",
+            f"⚠️ آخرین خطا: <code>{esc(str(backup.get('last_error') or 'بدون خطا'))[:500]}</code>",
+            "",
+            f"🚀 آخرین نسخه منتشرشده: <code>{esc(last_update.version if last_update else '-')}</code>",
+        ],
+        subtitle="نسخه، استقرار، پشتیبان‌گیری و دسترس‌پذیری",
+        footer="در صورت مشاهده خطا، پیش از انتشار نسخه جدید یک پشتیبان فوری تهیه کنید.",
     )
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💾 پشتیبان‌گیری فوری", callback_data="admin:backup")],
-            [InlineKeyboardButton(text="📦 آپدیت سیستم", callback_data="admin:update")],
-            [InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")],
+            [InlineKeyboardButton(text="💾 تهیه پشتیبان فوری", callback_data="admin:backup")],
+            [InlineKeyboardButton(text="📦 انتشار نسخه جدید", callback_data="admin:update")],
+            [InlineKeyboardButton(text="‹ بازگشت به مرکز مدیریت", callback_data="admin:panel")],
         ]
     )
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
-
 
 @router.callback_query(F.data == "admin:backup")
 async def admin_backup(callback: CallbackQuery):
@@ -686,7 +768,17 @@ async def admin_update(callback: CallbackQuery):
     if not await require_admin_callback(callback):
         return
     await callback.message.answer(
-        "📦 فایل ZIP نسخه جدید را در همین گفتگو ارسال کنید.\n\n"
-        "پس از اعتبارسنجی بسته، تغییرات در GitHub ثبت می‌شود و Railway انتشار نسخه جدید را به‌صورت خودکار آغاز می‌کند."
+        panel(
+            "📦",
+            "انتشار نسخه جدید",
+            [
+                "فایل ZIP نسخه را در همین گفتگو ارسال کنید.",
+                "بسته پیش از انتشار از نظر ساختار، فایل‌های ضروری و شماره نسخه اعتبارسنجی می‌شود.",
+                "پس از ثبت Commit در GitHub، Railway استقرار خودکار را آغاز خواهد کرد.",
+            ],
+            subtitle="به‌روزرسانی امن از داخل ربات",
+            footer="فایل‌های محرمانه، توکن‌ها و پایگاه داده را داخل ZIP قرار ندهید.",
+        )
     )
     await callback.answer()
+

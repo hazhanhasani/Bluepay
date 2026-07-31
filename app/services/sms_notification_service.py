@@ -4,24 +4,22 @@ import html
 
 import httpx
 
-from app.bot.presentation import sms_result_label
+from app.bot.presentation import badge, money_toman, panel, sms_result_label
 from app.core.config import settings
 from app.models import Invoice, Merchant, SmsTransaction
 from app.services.sms_service import SmsIngestDiagnostic
 from app.version import APP_VERSION
 
 
-def _toman(value: int | None) -> str:
-    if value is None:
-        return "نامشخص"
-    return f"{value // 10:,} تومان"
+def _money(value: int | None) -> str:
+    return "نامشخص" if value is None else money_toman(value)
 
 
-def _technical_detail(sms: SmsTransaction, diagnostic: SmsIngestDiagnostic) -> str:
+def _diagnostic_line(sms: SmsTransaction, diagnostic: SmsIngestDiagnostic) -> str:
     return (
-        f"🔧 کد بررسی: <code>{html.escape(diagnostic.result)}</code>\n"
-        f"🧠 اطمینان تشخیص: <b>{sms.parse_confidence}%</b>\n"
-        f"🧩 نسخه پردازشگر: <code>{APP_VERSION}</code>"
+        f"کد بررسی: <code>{html.escape(diagnostic.result)}</code>  •  "
+        f"اطمینان: <b>{sms.parse_confidence}%</b>  •  "
+        f"نسخه: <code>{APP_VERSION}</code>"
     )
 
 
@@ -35,31 +33,37 @@ async def send_sms_processing_notice(
         return
 
     if invoice:
-        text = (
-            "✅ <b>پرداخت با موفقیت تأیید شد</b>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            f"🧾 شناسه سفارش: <code>{html.escape(invoice.order_id)}</code>\n"
-            f"💳 مبلغ پرداخت: <b>{_toman(sms.amount_rial)}</b>\n"
-            f"🏦 بانک: <b>{html.escape(sms.bank_code)}</b>\n"
-            f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            "پرداخت به‌صورت خودکار با فاکتور در انتظار تطبیق داده شد.\n\n"
-            + _technical_detail(sms, diagnostic)
+        text = panel(
+            "✅",
+            "پرداخت تأیید شد",
+            [
+                f"🧾 سفارش: <code>{html.escape(invoice.order_id)}</code>",
+                f"💳 مبلغ: <b>{_money(sms.amount_rial)}</b>",
+                f"🏦 بانک: <b>{html.escape(sms.bank_code)}</b>",
+                f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>",
+                f"📡 وضعیت: <b>{badge('paid')}</b>",
+            ],
+            subtitle="تراکنش بانکی با فاکتور در انتظار تطبیق داده شد",
+            footer=_diagnostic_line(sms, diagnostic),
         )
     else:
-        text = (
-            "⚠️ <b>پیامک دریافت شد؛ پرداخت تأیید نشد</b>\n"
-            "━━━━━━━━━━━━━━━━\n"
-            f"🏦 بانک: <b>{html.escape(sms.bank_code)}</b>\n"
-            f"💵 مبلغ تشخیص‌داده‌شده: <b>{_toman(sms.amount_rial)}</b>\n"
-            f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
-            f"🔎 نتیجه بررسی: <b>{html.escape(sms_result_label(diagnostic.result))}</b>\n"
-            f"📝 توضیح: {html.escape(diagnostic.detail)}\n\n"
-            + _technical_detail(sms, diagnostic)
-        )
-        preview = html.escape((sms.raw_message or "").strip()[:350])
+        lines = [
+            f"🏦 بانک تشخیص‌داده‌شده: <b>{html.escape(sms.bank_code)}</b>",
+            f"💵 مبلغ: <b>{_money(sms.amount_rial)}</b>",
+            f"📱 منبع پیامک: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>",
+            f"🔎 نتیجه: <b>{html.escape(sms_result_label(diagnostic.result))}</b>",
+            f"📝 توضیح: {html.escape(diagnostic.detail)}",
+        ]
+        preview = html.escape((sms.raw_message or "").strip()[:420])
         if preview:
-            text += f"\n\n<b>متن دریافت‌شده</b>\n<blockquote>{preview}</blockquote>"
+            lines.extend(["", "<b>متن دریافت‌شده</b>", f"<blockquote>{preview}</blockquote>"])
+        text = panel(
+            "⚠️",
+            "پیامک دریافت شد؛ پرداخت تأیید نشد",
+            lines,
+            subtitle="برای جلوگیری از تأیید اشتباه، فاکتور بدون تطبیق دقیق پرداخت نمی‌شود",
+            footer=_diagnostic_line(sms, diagnostic),
+        )
 
     url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
     try:
@@ -83,18 +87,27 @@ async def send_invalid_sms_payload_notice(
     detail: str,
     preview: str = "",
 ) -> None:
-    safe_preview = html.escape((preview or "").strip()[:300])
-    text = (
-        "❌ <b>درخواست پیامک قابل پردازش نیست</b>\n"
-        "━━━━━━━━━━━━━━━━\n"
-        f"🔧 کد خطا: <code>{html.escape(error_code)}</code>\n"
-        f"📝 علت: {html.escape(detail)}\n"
-        "━━━━━━━━━━━━━━━━\n"
-        "در SMS Forwarder، نوع Body را روی <code>JSON</code> قرار دهید و متغیرها را با دکمه <b>{}</b> برنامه درج کنید.\n\n"
-        '<code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}"}</code>'
-    )
+    safe_preview = html.escape((preview or "").strip()[:360])
+    lines = [
+        f"🔧 کد خطا: <code>{html.escape(error_code)}</code>",
+        f"📝 علت: {html.escape(detail)}",
+        "",
+        "<b>تنظیم استاندارد SMS Forwarder</b>",
+        "• Method: <code>POST</code>",
+        "• Body: <code>JSON</code>",
+        '• Payload: <code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}"}</code>',
+        "",
+        "متغیرهای داخل آکولاد باید با دکمه <b>{}</b> خود برنامه درج شوند.",
+    ]
     if safe_preview:
-        text += f"\n\n<b>بدنه دریافت‌شده</b>\n<blockquote>{safe_preview}</blockquote>"
+        lines.extend(["", "<b>بدنه دریافت‌شده</b>", f"<blockquote>{safe_preview}</blockquote>"])
+    text = panel(
+        "❌",
+        "بدنه وبهوک پیامک معتبر نیست",
+        lines,
+        subtitle="درخواست دریافت شد اما اطلاعات واقعی پیامک در آن وجود نداشت",
+        footer="پس از اصلاح تنظیمات، یک پیامک جدید ارسال کنید؛ Retry درخواست قدیمی ممکن است همان بدنه قبلی را تکرار کند.",
+    )
 
     url = f"https://api.telegram.org/bot{settings.bot_token}/sendMessage"
     try:
