@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "min_version": "0.2.3",
-  "description": "رفع Success کاذب در SMS Forwarder، تشخیص متغیرهای جایگزین‌نشده و پشتیبانی گسترده‌تر از قالب‌های ورودی وبهوک",
+  "description": "تشخیص مقاوم بدنه SMS Forwarder، پشتیبانی از متن URL-encoded و قالب From، رفع قطعی قالب واقعی بلوبانک و نمایش نسخه/متن دریافتی در گزارش",
   "run_migrations": true
 }

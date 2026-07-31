@@ -21,10 +21,10 @@ from app.services.callback_service import send_paid_callback
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
 from app.services.storage_service import storage
+from app.version import APP_VERSION
 
 router = Router(name="admin")
 PAGE_SIZE = 8
-APP_VERSION = "0.3.3"
 
 
 def toman(value_rial: int | None) -> str:

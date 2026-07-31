@@ -30,6 +30,7 @@ class SmsIngestDiagnostic:
     amount_candidate_count: int = 0
     bank_candidate_count: int = 0
     source_candidate_count: int = 0
+    notify: bool = True
 
 
 async def ingest_sms(
@@ -42,8 +43,9 @@ async def ingest_sms(
 ) -> tuple[SmsTransaction, Invoice | None, SmsIngestDiagnostic]:
     fingerprint = sms_fingerprint(sender, message, device_id, merchant_id)
     existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
+    previous_status = existing.status if existing else None
     if existing and (existing.status == "matched" or existing.matched_invoice_id):
-        return existing, None, SmsIngestDiagnostic("duplicate", "این پیامک قبلاً مصرف و به فاکتور متصل شده است")
+        return existing, None, SmsIngestDiagnostic("duplicate", "این پیامک قبلاً مصرف و به فاکتور متصل شده است", notify=False)
 
     parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
     if existing:
@@ -79,18 +81,18 @@ async def ingest_sms(
         except IntegrityError:
             await session.rollback()
             existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
-            return existing, None, SmsIngestDiagnostic("duplicate", "اثر انگشت پیامک قبلاً ثبت شده است")
+            return existing, None, SmsIngestDiagnostic("duplicate", "اثر انگشت پیامک قبلاً ثبت شده است", notify=False)
 
     if not parsed.is_credit:
         sms.status = "review"
-        return sms, None, SmsIngestDiagnostic("not_credit", "متن پیامک به‌عنوان واریز قطعی تشخیص داده نشد")
+        return sms, None, SmsIngestDiagnostic("not_credit", "متن پیامک به‌عنوان واریز قطعی تشخیص داده نشد", notify=previous_status != "review")
     if not parsed.amount_rial:
         sms.status = "review"
-        return sms, None, SmsIngestDiagnostic("amount_not_found", "مبلغ واریز از متن پیامک استخراج نشد")
+        return sms, None, SmsIngestDiagnostic("amount_not_found", "مبلغ واریز از متن پیامک استخراج نشد", notify=previous_status != "review")
     if parsed.confidence < 65:
         sms.status = "review"
         return sms, None, SmsIngestDiagnostic(
-            "low_confidence", f"اطمینان Parser پایین است: {parsed.confidence}%"
+            "low_confidence", f"اطمینان Parser پایین است: {parsed.confidence}%", notify=previous_status != "review"
         )
 
     now = datetime.now(timezone.utc)
@@ -115,6 +117,7 @@ async def ingest_sms(
             "no_amount_candidate",
             f"فاکتور فعال با مبلغ دقیق {parsed.amount_rial} ریال پیدا نشد",
             amount_candidate_count=0,
+            notify=previous_status != "unmatched",
         )
 
     parsed_bank = normalize_bank_code(parsed.bank_code)
@@ -137,6 +140,7 @@ async def ingest_sms(
             f"مبلغ پیدا شد اما بانک/کارت تطبیق نداشت؛ تشخیص={parsed_bank}، کارت‌های فاکتور={expected}",
             amount_candidate_count=len(amount_candidates),
             bank_candidate_count=0,
+            notify=previous_status != "unmatched",
         )
 
     # device_id یک کمک برای تفکیک چند گوشی است، نه دلیل قطعی برای رد پرداخت.
@@ -172,6 +176,7 @@ async def ingest_sms(
                 amount_candidate_count=len(amount_candidates),
                 bank_candidate_count=len(bank_candidates),
                 source_candidate_count=0,
+                notify=previous_status != "review",
             )
 
     if len(source_candidates) != 1:
@@ -182,6 +187,7 @@ async def ingest_sms(
             amount_candidate_count=len(amount_candidates),
             bank_candidate_count=len(bank_candidates),
             source_candidate_count=len(source_candidates),
+            notify=previous_status != "review",
         )
 
     invoice = await confirm_invoice_paid(session, source_candidates[0].id, sms.id, parsed.reference_number)
@@ -193,6 +199,7 @@ async def ingest_sms(
             amount_candidate_count=len(amount_candidates),
             bank_candidate_count=len(bank_candidates),
             source_candidate_count=len(source_candidates),
+            notify=previous_status != "review",
         )
 
     sms.status = "matched"

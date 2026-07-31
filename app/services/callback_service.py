@@ -8,6 +8,7 @@ import httpx
 
 from app.core.security import callback_signature
 from app.models import Invoice, Merchant
+from app.version import APP_VERSION
 
 
 def paid_payload(invoice: Invoice) -> dict:
@@ -34,7 +35,7 @@ async def _deliver(url: str, secret: str, payload: dict, event: str, *, retry: b
         "X-Gateway-Event": event,
         "X-Gateway-Delivery": delivery_id,
         "X-Gateway-Timestamp": datetime.now(timezone.utc).isoformat(),
-        "User-Agent": "BluePay-Gateway/0.3.3",
+        "User-Agent": f"BluePay-Gateway/{APP_VERSION}",
     }
 
     last_result = "not_sent"

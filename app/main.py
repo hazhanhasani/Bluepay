@@ -24,6 +24,7 @@ from app.services.invoice_service import release_invoice_reservation
 from app.services.migration_service import run_runtime_migrations
 from app.services.settings_service import ensure_runtime_settings
 from app.services.storage_service import storage
+from app.version import APP_VERSION
 
 bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -107,7 +108,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.3.3", lifespan=lifespan, docs_url="/openapi", redoc_url=None)
+app = FastAPI(title="Direct Payment Gateway Bot", version=APP_VERSION, lifespan=lifespan, docs_url="/openapi", redoc_url=None)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

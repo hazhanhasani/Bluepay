@@ -7,6 +7,7 @@ import httpx
 from app.core.config import settings
 from app.models import Invoice, Merchant, SmsTransaction
 from app.services.sms_service import SmsIngestDiagnostic
+from app.version import APP_VERSION
 
 
 def _toman(value: int | None) -> str:
@@ -31,8 +32,13 @@ async def send_sms_processing_notice(
         f"📱 منبع: <code>{html.escape(sms.device_id or 'ثبت نشده')}</code>\n"
         f"🧠 اطمینان: <b>{sms.parse_confidence}%</b>\n"
         f"📌 نتیجه: <code>{html.escape(diagnostic.result)}</code>\n"
+        f"🧩 نسخه پردازشگر: <code>{APP_VERSION}</code>\n"
         f"📝 توضیح: {html.escape(diagnostic.detail)}"
     )
+    if not invoice:
+        preview = html.escape((sms.raw_message or "").strip()[:350])
+        if preview:
+            text += f"\n\n<b>متن واقعی دریافت‌شده:</b>\n<blockquote>{preview}</blockquote>"
     if invoice:
         text += f"\n🧾 شناسه سفارش: <code>{html.escape(invoice.order_id)}</code>"
 

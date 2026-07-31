@@ -31,7 +31,9 @@ from app.services.invoice_service import create_invoice, get_invoice_by_token, r
 from app.services.settings_service import get_setting
 from app.services.sms_service import ingest_sms
 from app.services.sms_notification_service import send_invalid_sms_payload_notice, send_sms_processing_notice
+from app.services.sms_payload_service import SmsPayloadError, parse_sms_payload
 from app.services.storage_service import storage
+from app.version import APP_VERSION
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -41,207 +43,14 @@ def rial_to_toman(value: int) -> int:
     return value // 10
 
 
-class SmsPayloadError(ValueError):
-    def __init__(self, code: str, detail: str, preview: str = "") -> None:
-        super().__init__(detail)
-        self.code = code
-        self.detail = detail
-        self.preview = preview[:500]
-
-
-_UNRESOLVED_PLACEHOLDERS = (
-    "{incoming number}",
-    "{{incoming number}}",
-    "{message body}",
-    "{{message body}}",
-    "<incoming number>",
-    "<message body>",
-)
-
-
-def _is_unresolved_placeholder(value: str | None) -> bool:
-    if not value:
-        return False
-    normalized = " ".join(value.strip().casefold().split())
-    return any(token in normalized for token in _UNRESOLVED_PLACEHOLDERS)
-
-
-def _split_combined_forwarded_message(value: str | None) -> tuple[str | None, str | None]:
-    """Split the default/custom Zerogic forwarded text when it contains From:.
-
-    A common Message Template is:
-      From : +989... (Blu Bank)
-      <original SMS body>
-    """
-    if not value:
-        return None, None
-    match = re.match(
-        r"(?is)^\s*(?:FROM|SENDER|فرستنده)\s*:\s*(?P<sender>[^\r\n]+)[\r\n]+(?P<message>.+)$",
-        value.strip(),
-    )
-    if not match:
-        return None, None
-    return match.group("sender").strip(), match.group("message").strip()
-
-
-def _first_payload_value(data: dict, *keys: str, skip_placeholders: bool = False):
-    for key in keys:
-        value = data.get(key)
-        if value is None or not str(value).strip():
-            continue
-        normalized = str(value).strip()
-        if skip_placeholders and _is_unresolved_placeholder(normalized):
-            continue
-        return normalized
-    return None
-
-
-def _parse_text_sms_payload(raw: str) -> dict:
-    text = raw.strip()
-    if not text:
-        return {}
-
-    # JSON sent as text/plain is accepted too.
-    try:
-        value = json.loads(text)
-        if isinstance(value, dict):
-            return value
-    except Exception:
-        pass
-
-    # Legacy text template is still accepted for backward compatibility.
-    # Recommended SMS Forwarder JSON body:
-    # Dynamic fields must be inserted by the forwarding app, not typed as literal braces.
-    marker = re.match(
-        r"(?is)^\s*DEVICE\s*:\s*(?P<device>[^\r\n]*)[\r\n]+"
-        r"\s*SENDER\s*:\s*(?P<sender>[^\r\n]*)[\r\n]+"
-        r"\s*MESSAGE\s*:\s*[\r\n]*(?P<message>.*)$",
-        text,
-    )
-    if marker:
-        return {
-            "device_id": marker.group("device").strip(),
-            "sender": marker.group("sender").strip(),
-            "message": marker.group("message").strip(),
-        }
-
-    # Also accept From:/Sender: followed by the original message body.
-    simple = re.match(
-        r"(?is)^\s*(?:FROM|SENDER|فرستنده)\s*:\s*(?P<sender>[^\r\n]*)[\r\n]+(?P<message>.*)$",
-        text,
-    )
-    if simple:
-        return {
-            "sender": simple.group("sender").strip(),
-            "message": simple.group("message").strip(),
-        }
-
-    return {"message": text}
-
-
 async def _read_sms_webhook_payload(request: Request) -> tuple[str, str, str | None, str | None]:
-    content_type = (request.headers.get("content-type") or "").lower()
-    data: dict = {}
-
     raw_body = await request.body()
     raw_text = raw_body.decode("utf-8", errors="replace")
-    try:
-        if "application/json" in content_type:
-            try:
-                value = json.loads(raw_text)
-                if isinstance(value, dict):
-                    data = value
-            except Exception:
-                # Some apps label a custom text template as application/json.
-                data = _parse_text_sms_payload(raw_text)
-        elif "application/x-www-form-urlencoded" in content_type:
-            from urllib.parse import parse_qs
-
-            parsed = parse_qs(raw_text, keep_blank_values=True)
-            data = {key: values[-1] if values else "" for key, values in parsed.items()}
-        else:
-            data = _parse_text_sms_payload(raw_text)
-    except Exception:
-        data = _parse_text_sms_payload(raw_text)
-
-    # Some forwarders wrap the actual values in data/payload/messageData.
-    for wrapper in ("data", "payload", "messageData", "sms", "smsData", "notification", "event"):
-        nested = data.get(wrapper)
-        if isinstance(nested, dict):
-            data = {**data, **nested}
-
-    # Query parameters can fill missing fields.
-    for key, value in request.query_params.items():
-        data.setdefault(key, value)
-
-    sender_keys = (
-        "sender", "from", "source", "address", "incoming_number", "incomingNumber",
-        "incoming", "number", "phone", "fromNumber", "from_number", "phoneNumber",
-        "originator", "originalSender", "original_sender", "title", "senderName",
-        "sender_name", "contactName", "contact_name",
+    return parse_sms_payload(
+        raw_text,
+        request.headers.get("content-type") or "",
+        dict(request.query_params),
     )
-    message_keys = (
-        "message", "body", "text", "msg", "content", "message_body", "messageBody",
-        "sms_body", "smsBody", "originalBody", "original_body", "originalMessage",
-        "original_message", "transformedBody", "transformed_body", "description",
-    )
-    supplied_sender = _first_payload_value(data, *sender_keys)
-    supplied_message = _first_payload_value(data, *message_keys)
-    had_unresolved_template = (
-        _is_unresolved_placeholder(supplied_sender) or _is_unresolved_placeholder(supplied_message)
-    )
-    # Prefer actual fields shipped by the app over a custom field that still
-    # contains a literal placeholder copied by the user.
-    sender = _first_payload_value(data, *sender_keys, skip_placeholders=True)
-    message = _first_payload_value(data, *message_keys, skip_placeholders=True)
-    device_id = _first_payload_value(
-        data, "device_id", "deviceId", "device", "phone_id", "phoneId", "sim", "sim_id",
-        "subscriptionId", "deviceModel", "device_name", "deviceName",
-    )
-    bank_code = _first_payload_value(data, "bank_code", "bankCode", "bank")
-
-    # If the app sends the complete customized template as one field, recover
-    # sender and original SMS body from the leading From:/Sender: line.
-    combined_sender, combined_message = _split_combined_forwarded_message(message)
-    if combined_sender and combined_message:
-        if not sender or _is_unresolved_placeholder(sender):
-            sender = combined_sender
-        message = combined_message
-
-    # Older/default text mode can arrive as the entire raw body, even when the
-    # selected content-type is inaccurate. Try that form before rejecting it.
-    if (not sender or not message or _is_unresolved_placeholder(sender) or _is_unresolved_placeholder(message)):
-        raw_sender, raw_message = _split_combined_forwarded_message(raw_text)
-        if raw_sender and raw_message:
-            sender, message = raw_sender, raw_message
-
-    unresolved_sender = _is_unresolved_placeholder(sender)
-    unresolved_message = _is_unresolved_placeholder(message)
-    if unresolved_sender or unresolved_message or (had_unresolved_template and (not sender or not message)):
-        raise SmsPayloadError(
-            "SMS_TEMPLATE_NOT_RESOLVED",
-            "متغیرهای SMS Forwarder جایگزین نشده‌اند. Incoming Number و Message Body را از بخش Message Template خود برنامه به‌صورت فیلد پویا اضافه کن؛ تایپ یا کپی ساده عبارت‌های داخل آکولاد کافی نیست.",
-            raw_text,
-        )
-
-    if not sender or len(sender) > 120:
-        raise SmsPayloadError(
-            "SMS_SENDER_MISSING",
-            "شماره/نام فرستنده واقعی پیامک در درخواست موجود نیست",
-            raw_text,
-        )
-    if not message or len(message) < 3 or len(message) > 4000:
-        raise SmsPayloadError(
-            "SMS_MESSAGE_MISSING",
-            "متن واقعی پیامک در درخواست موجود نیست یا طول آن نامعتبر است",
-            raw_text,
-        )
-    if device_id and len(device_id) > 120:
-        raise SmsPayloadError("SMS_DEVICE_TOO_LONG", "device_id بیش از حد طولانی است", raw_text)
-    if bank_code and len(bank_code) > 60:
-        raise SmsPayloadError("SMS_BANK_CODE_TOO_LONG", "bank_code بیش از حد طولانی است", raw_text)
-
-    return sender, message, device_id, bank_code
 
 
 def invoice_payload(invoice: Invoice) -> dict:
@@ -268,7 +77,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.3.3",
+        "version": APP_VERSION,
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }
@@ -507,7 +316,8 @@ async def merchant_sms_webhook(
         bank_hint=bank_code,
     )
     await session.commit()
-    background_tasks.add_task(send_sms_processing_notice, merchant, sms, invoice, diagnostic)
+    if diagnostic.notify:
+        background_tasks.add_task(send_sms_processing_notice, merchant, sms, invoice, diagnostic)
     if invoice:
         background_tasks.add_task(send_paid_callback, invoice)
     return {
@@ -524,6 +334,10 @@ async def merchant_sms_webhook(
         "amount_candidate_count": diagnostic.amount_candidate_count,
         "bank_candidate_count": diagnostic.bank_candidate_count,
         "source_candidate_count": diagnostic.source_candidate_count,
+        "gateway_version": APP_VERSION,
+        "received_sender": sender[:120],
+        "received_message_preview": message[:240],
+        "notification_sent": diagnostic.notify,
     }
 
 
