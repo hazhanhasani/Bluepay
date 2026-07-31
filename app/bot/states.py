@@ -13,3 +13,15 @@ class ManualInvoiceState(StatesGroup):
     description = State()
     fee_mode = State()
     card = State()
+
+
+class AdminWalletAdjustState(StatesGroup):
+    amount = State()
+
+
+class AdminFeeState(StatesGroup):
+    amount = State()
+
+
+class AdminSmsApproveState(StatesGroup):
+    invoice_token = State()

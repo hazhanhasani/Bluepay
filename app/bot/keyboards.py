@@ -15,7 +15,7 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔗 اطلاعات وب‌هوک پیامک", callback_data="sms:webhook")],
     ]
     if is_admin:
-        rows.append([InlineKeyboardButton(text="📦 آپدیت سیستم", callback_data="update:help")])
+        rows.append([InlineKeyboardButton(text="👑 بخش مدیریت", callback_data="admin:panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -45,5 +45,29 @@ def api_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🔄 ساخت/تعویض API Key", callback_data="api:regen")],
             [InlineKeyboardButton(text="↩️ بازگشت", callback_data="home")],
+        ]
+    )
+
+
+def admin_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📊 داشبورد", callback_data="admin:dashboard"),
+                InlineKeyboardButton(text="👥 پذیرندگان", callback_data="admin:merchants:0"),
+            ],
+            [
+                InlineKeyboardButton(text="🧾 فاکتورها", callback_data="admin:invoices"),
+                InlineKeyboardButton(text="🔎 بررسی پیامک", callback_data="admin:reviews"),
+            ],
+            [
+                InlineKeyboardButton(text="🏦 همه کارت‌ها", callback_data="admin:cards"),
+                InlineKeyboardButton(text="💳 گردش کیف پول", callback_data="admin:ledger"),
+            ],
+            [
+                InlineKeyboardButton(text="🖥 وضعیت سیستم", callback_data="admin:system"),
+                InlineKeyboardButton(text="📦 آپدیت سیستم", callback_data="admin:update"),
+            ],
+            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
         ]
     )

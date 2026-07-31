@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.routes import router as api_router
+from app.bot.admin import router as admin_router
 from app.bot.handlers import router as bot_router
 from app.core.config import settings
 from app.db.base import Base
@@ -25,7 +26,7 @@ from app.services.storage_service import storage
 
 bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-dp.include_router(bot_router)
+dp.include_routers(admin_router, bot_router)
 
 
 async def expiration_worker() -> None:
@@ -104,7 +105,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.3", lifespan=lifespan)
+app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.4", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

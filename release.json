@@ -1,7 +1,7 @@
 {
   "name": "Direct Payment Gateway Bot",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "min_version": "0.1.0",
-  "description": "رفع خطای Router is already attached ناشی از import دوباره app.main توسط Uvicorn",
+  "description": "افزودن بخش مدیریت کامل داخل ربات برای داشبورد، پذیرندگان، کیف پول، کارمزد، فاکتورها، پیامک‌های بررسی، کارت‌ها، وضعیت سیستم و آپدیت",
   "run_migrations": true
 }
