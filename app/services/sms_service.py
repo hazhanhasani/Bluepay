@@ -28,30 +28,45 @@ async def ingest_sms(
 ) -> tuple[SmsTransaction, Invoice | None, str]:
     fingerprint = sms_fingerprint(sender, message, device_id, merchant_id)
     existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
-    if existing:
+    if existing and (existing.status == "matched" or existing.matched_invoice_id):
         return existing, None, "duplicate"
 
     parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
-    sms = SmsTransaction(
-        sender=sender[:120],
-        device_id=(device_id or None),
-        raw_message=message,
-        bank_code=parsed.bank_code,
-        amount_rial=parsed.amount_rial,
-        card_last4=parsed.card_last4,
-        transaction_at=parsed.transaction_at,
-        reference_number=parsed.reference_number,
-        fingerprint=fingerprint,
-        parse_confidence=parsed.confidence,
-        status="received",
-    )
-    session.add(sms)
-    try:
-        await session.flush()
-    except IntegrityError:
-        await session.rollback()
-        existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
-        return existing, None, "duplicate"
+    if existing:
+        # پیامک‌های قبلیِ unmatched/review بعد از اصلاح Parser یا ساخت فاکتور
+        # باید با Retry دوباره پردازش شوند؛ اما پیامک matched هرگز دوباره مصرف نمی‌شود.
+        sms = existing
+        sms.sender = sender[:120]
+        sms.device_id = device_id or None
+        sms.raw_message = message
+        sms.bank_code = parsed.bank_code
+        sms.amount_rial = parsed.amount_rial
+        sms.card_last4 = parsed.card_last4
+        sms.transaction_at = parsed.transaction_at
+        sms.reference_number = parsed.reference_number
+        sms.parse_confidence = parsed.confidence
+        sms.status = "received"
+    else:
+        sms = SmsTransaction(
+            sender=sender[:120],
+            device_id=(device_id or None),
+            raw_message=message,
+            bank_code=parsed.bank_code,
+            amount_rial=parsed.amount_rial,
+            card_last4=parsed.card_last4,
+            transaction_at=parsed.transaction_at,
+            reference_number=parsed.reference_number,
+            fingerprint=fingerprint,
+            parse_confidence=parsed.confidence,
+            status="received",
+        )
+        session.add(sms)
+        try:
+            await session.flush()
+        except IntegrityError:
+            await session.rollback()
+            existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
+            return existing, None, "duplicate"
 
     if not parsed.is_credit or not parsed.amount_rial or parsed.confidence < 65:
         sms.status = "review"

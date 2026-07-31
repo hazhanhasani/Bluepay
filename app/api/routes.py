@@ -402,6 +402,11 @@ async def merchant_sms_webhook(
         "success": True,
         "result": result,
         "sms_id": sms.id,
+        "sms_status": sms.status,
+        "detected_bank": sms.bank_code,
+        "detected_amount_rial": sms.amount_rial,
+        "detected_card_last4": sms.card_last4,
+        "parse_confidence": sms.parse_confidence,
         "invoice_id": invoice.token if invoice else None,
     }
 
