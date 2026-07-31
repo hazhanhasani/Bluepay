@@ -54,7 +54,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }

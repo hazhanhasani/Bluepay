@@ -1,4 +1,4 @@
-# درگاه واسط پرداخت مستقیم — نسخه 0.2.2
+# درگاه واسط پرداخت مستقیم — نسخه 0.2.3
 
 این نسخه برای نصب ساده روی Railway طراحی شده و کاربر فقط دو متغیر وارد می‌کند:
 
@@ -22,7 +22,7 @@ GITHUB_TOKEN=توکن Fine-grained گیت‌هاب با Contents: Read and write
 > دیتابیس داخل شاخه `gateway-data` به‌صورت رمزنگاری‌شده ذخیره می‌شود و فایل خام دیتابیس در GitHub قرار نمی‌گیرد. برای بازیابی باید همان `BOT_TOKEN` حفظ شود. تعویض BOT_TOKEN بدون انتقال کلید می‌تواند بازیابی نسخه قبلی را غیرممکن کند.
 
 
-## اصلاح Healthcheck در نسخه 0.2.2
+## اصلاح Healthcheck در نسخه 0.2.3
 
 در نسخه قبلی، ذخیره Snapshot دیتابیس روی GitHub داخل مرحله Startup و به‌صورت هم‌زمان انجام می‌شد. اگر پاسخ GitHub کند می‌شد، وب‌سرور پیش از پاسخ‌دادن به `/health` معطل می‌ماند. در این نسخه:
 
@@ -51,7 +51,7 @@ GITHUB_TOKEN=توکن Fine-grained گیت‌هاب با Contents: Read and write
 2. در Railway گزینه `Deploy from GitHub Repo` را انتخاب کنید.
 3. فقط `BOT_TOKEN` و `GITHUB_TOKEN` را ثبت کنید.
 4. `/start` را در ربات بزنید.
-5. فایل ZIP کامل نسخه 0.2.2 را برای ربات ارسال کنید.
+5. فایل ZIP کامل نسخه 0.2.3 را برای ربات ارسال کنید.
 6. ربات فایل‌ها را Commit می‌کند و Railway نسخه کامل را خودکار Deploy می‌کند.
 
 نام Repository و Branch از Railway دریافت می‌شود و دستور `/repo` یا `/github` برای تنظیم لازم نیست.
@@ -157,3 +157,8 @@ app/main.py
 - در صورت وجود چند فاکتور هم‌مبلغ برای یک کارت، سیستم تأیید را حدس نمی‌زند و پیامک را برای بررسی دستی نگه می‌دارد.
 - این روش ذخیره‌سازی برای نصب ساده و حجم کم طراحی شده است. برای ترافیک بالا و چند Replica، PostgreSQL مدیریت‌شده مناسب‌تر است.
 - برای صفحه پرداخت و Webhook عمومی، سرویس نهایی باید یک دامنه عمومی Railway داشته باشد؛ در نصب با Railway Template این مورد خودکار است و در Deploy عادی ممکن است یک‌بار دکمه Generate Domain لازم باشد.
+
+
+## Hotfix 0.2.3
+- Fixed duplicate module import when starting with `python -m app.main`.
+- Uvicorn now receives the FastAPI app object directly, preventing Aiogram Router from being attached twice.

@@ -1,7 +1,7 @@
 {
   "name": "Direct Payment Gateway Bot",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "min_version": "0.1.0",
-  "description": "رفع Healthcheck Railway؛ Backup گیت‌هاب دیگر Startup وب‌سرور را مسدود نمی‌کند",
+  "description": "رفع خطای Router is already attached ناشی از import دوباره app.main توسط Uvicorn",
   "run_migrations": true
 }

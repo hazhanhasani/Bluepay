@@ -104,10 +104,10 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.2", lifespan=lifespan)
+app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.3", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=settings.port, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=settings.port, reload=False)
