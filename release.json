@@ -1,7 +1,7 @@
 {
   "name": "Direct Payment Gateway Bot",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "min_version": "0.1.0",
-  "description": "اصلاح بسته نصب و پشتیبانی از ZIP تو در تو یا دارای پوشه ریشه",
+  "description": "رفع Healthcheck Railway؛ Backup گیت‌هاب دیگر Startup وب‌سرور را مسدود نمی‌کند",
   "run_migrations": true
 }

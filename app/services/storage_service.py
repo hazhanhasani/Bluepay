@@ -62,7 +62,8 @@ class GitHubDatabaseStorage:
         return Fernet(key)
 
     async def _request(self, method: str, url: str, *, allow_404: bool = False, **kwargs):
-        async with httpx.AsyncClient(timeout=90) as client:
+        timeout = httpx.Timeout(12.0, connect=5.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(method, url, headers=self.headers, **kwargs)
         if allow_404 and response.status_code == 404:
             return None
@@ -80,7 +81,8 @@ class GitHubDatabaseStorage:
             return None
         encoded = result.get("content", "").replace("\n", "")
         if not encoded and result.get("download_url"):
-            async with httpx.AsyncClient(timeout=90) as client:
+            timeout = httpx.Timeout(12.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(result["download_url"], headers=self.headers)
             response.raise_for_status()
             return response.content
@@ -195,6 +197,13 @@ class GitHubDatabaseStorage:
                 json={"ref": f"refs/heads/{settings.data_branch}", "sha": commit["sha"]},
             )
         return commit["sha"]
+
+    def mark_dirty(self) -> None:
+        """Queue a background snapshot without blocking startup or requests."""
+        if self.disabled:
+            self.dirty = False
+            return
+        self.dirty = True
 
     async def backup_now(self) -> bool:
         """Synchronously persist a consistent, encrypted snapshot to GitHub."""

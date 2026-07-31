@@ -51,9 +51,10 @@ def invoice_payload(invoice: Invoice) -> dict:
 async def health():
     backup = storage.status()
     return {
-        "ok": backup["last_error"] is None,
+        "ok": True,
+        "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.0",
+        "version": "0.2.2",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }

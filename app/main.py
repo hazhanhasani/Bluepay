@@ -67,8 +67,16 @@ async def telegram_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Restore the encrypted database snapshot before the first SQL connection.
-    await storage.restore_if_available()
+    # Remote storage is best-effort and must not block Railway readiness.
+    # The bounded restore runs before SQLAlchemy opens the local database.
+    try:
+        await asyncio.wait_for(storage.restore_if_available(), timeout=15)
+    except asyncio.TimeoutError:
+        storage.last_error = "TimeoutError: GitHub database restore exceeded 15 seconds"
+        print(f"database_restore_error={storage.last_error}")
+    except Exception as exc:
+        storage.last_error = f"{type(exc).__name__}: {exc}"
+        print(f"database_restore_error={storage.last_error}")
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -96,7 +104,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.2", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

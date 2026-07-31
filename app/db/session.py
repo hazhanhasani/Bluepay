@@ -11,7 +11,7 @@ class PersistentAsyncSession(AsyncSession):
         has_changes = bool(self.new or self.dirty or self.deleted)
         await super().commit()
         if has_changes:
-            await storage.backup_now()
+            storage.mark_dirty()
 
 
 engine = create_async_engine(
