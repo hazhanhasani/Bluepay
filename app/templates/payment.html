@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#07101f">
-  <title>پرداخت امن | {{ invoice.merchant.name }}</title>
+  <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.merchant.name }}{% endif %}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -24,10 +24,10 @@
   </div>
 
   <section class="card merchant-head">
-    <div class="logo">{{ invoice.merchant.name[:1] }}</div>
+    <div class="logo">{% if invoice.purpose == 'wallet_topup' %}B{% else %}{{ invoice.merchant.name[:1] }}{% endif %}</div>
     <div>
-      <small>پرداخت به پذیرنده</small>
-      <h1>{{ invoice.merchant.name }}</h1>
+      <small>{% if invoice.purpose == 'wallet_topup' %}افزایش اعتبار خدمات{% else %}پرداخت به پذیرنده{% endif %}</small>
+      <h1>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول بلوپی{% else %}{{ invoice.merchant.name }}{% endif %}</h1>
       <div class="eyebrow">{{ invoice.description or 'پرداخت سفارش' }}</div>
     </div>
     <span class="badge pending">در انتظار واریز</span>
@@ -38,8 +38,8 @@
     <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
     <div class="amount-hint">این مبلغ را بدون کم‌وزیاد واریز کنید</div>
     <div class="summary">
-      <div><span>مبلغ سفارش</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
-      <div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>
+      <div><span>{% if invoice.purpose == 'wallet_topup' %}اعتبار انتخابی{% else %}مبلغ سفارش{% endif %}</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
+      {% if invoice.purpose != 'wallet_topup' %}<div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>{% endif %}
       <div class="highlight"><span>کد تطبیق یکتا</span><b>+{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
       <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
     </div>
@@ -62,6 +62,7 @@
       <li>فقط مبلغ دقیق {{ "{:,}".format(toman(invoice.payable_amount_rial)) }} تومان را واریز کنید.</li>
       <li>کد تطبیق بخشی از مبلغ نهایی است و نباید حذف شود.</li>
       <li>پس از دریافت پیامک بانک، صفحه به‌صورت خودکار به رسید موفق تغییر می‌کند.</li>
+      {% if invoice.purpose == 'wallet_topup' %}<li>تمام مبلغ دقیق پرداخت‌شده، شامل کد تطبیق، به کیف پول شما افزوده می‌شود.</li>{% endif %}
       <li>در صورت پایان زمان، از پذیرنده لینک جدید دریافت کنید.</li>
     </ul>
     <div class="loader-line"><span></span> در حال پایش وضعیت تراکنش</div>

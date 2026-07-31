@@ -55,6 +55,8 @@ async def _deliver(url: str, secret: str, payload: dict, event: str, *, retry: b
 
 
 async def send_paid_callback(invoice: Invoice) -> tuple[bool, str]:
+    if invoice.purpose != "payment":
+        return True, "internal_invoice_no_callback"
     if not invoice.callback_url or not invoice.callback_secret:
         return True, "callback_not_configured"
     payload = paid_payload(invoice)

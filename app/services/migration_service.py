@@ -33,6 +33,20 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
                 text("ALTER TABLE invoices ADD COLUMN unique_amount_rial BIGINT NOT NULL DEFAULT 0")
             )
             changed = True
+        if "purpose" not in invoice_columns:
+            await connection.execute(
+                text("ALTER TABLE invoices ADD COLUMN purpose VARCHAR(30) NOT NULL DEFAULT 'payment'")
+            )
+            changed = True
+        if "wallet_target_merchant_id" not in invoice_columns:
+            await connection.execute(
+                text("ALTER TABLE invoices ADD COLUMN wallet_target_merchant_id BIGINT")
+            )
+            changed = True
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_purpose ON invoices (purpose)"))
+        await connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_invoices_wallet_target ON invoices (wallet_target_merchant_id)")
+        )
 
         # Protect pending invoices created by older versions as well.
         await connection.execute(

@@ -21,6 +21,10 @@ class CallbackConfigState(StatesGroup):
     url = State()
 
 
+class WalletTopUpState(StatesGroup):
+    amount = State()
+
+
 class AdminWalletAdjustState(StatesGroup):
     amount = State()
 

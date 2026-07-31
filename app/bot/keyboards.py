@@ -52,6 +52,43 @@ def invoices_menu() -> InlineKeyboardMarkup:
     )
 
 
+def wallet_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="＋ شارژ آنلاین کیف پول", callback_data="wallet:topup")],
+            [InlineKeyboardButton(text="📜 گردش کیف پول", callback_data="wallet:ledger")],
+            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
+        ]
+    )
+
+
+def wallet_topup_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="۵۰٬۰۰۰ تومان", callback_data="wallet:topup:50000"),
+                InlineKeyboardButton(text="۱۰۰٬۰۰۰ تومان", callback_data="wallet:topup:100000"),
+            ],
+            [
+                InlineKeyboardButton(text="۲۰۰٬۰۰۰ تومان", callback_data="wallet:topup:200000"),
+                InlineKeyboardButton(text="۵۰۰٬۰۰۰ تومان", callback_data="wallet:topup:500000"),
+            ],
+            [InlineKeyboardButton(text="✏️ مبلغ دلخواه", callback_data="wallet:topup:custom")],
+            [InlineKeyboardButton(text="‹ بازگشت به کیف پول", callback_data="wallet")],
+        ]
+    )
+
+
+def wallet_topup_created_menu(payment_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 پرداخت و شارژ کیف پول", url=payment_url)],
+            [InlineKeyboardButton(text="💼 بازگشت به کیف پول", callback_data="wallet")],
+            [InlineKeyboardButton(text="⌂ صفحه اصلی", callback_data="home")],
+        ]
+    )
+
+
 def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

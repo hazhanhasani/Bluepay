@@ -27,7 +27,7 @@ class Merchant(TimestampMixin, Base):
     callback_secret: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
     cards: Mapped[list[BankCard]] = relationship(back_populates="merchant", cascade="all, delete-orphan")
-    invoices: Mapped[list[Invoice]] = relationship(back_populates="merchant")
+    invoices: Mapped[list[Invoice]] = relationship(back_populates="merchant", foreign_keys="Invoice.merchant_id")
 
     @property
     def available_balance_rial(self) -> int:
@@ -70,6 +70,10 @@ class Invoice(TimestampMixin, Base):
     unique_amount_rial: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     payable_amount_rial: Mapped[int] = mapped_column(BigInteger, index=True)
     fee_mode: Mapped[str] = mapped_column(String(20))
+    purpose: Mapped[str] = mapped_column(String(30), default="payment", server_default="payment", index=True)
+    wallet_target_merchant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("merchants.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -79,7 +83,7 @@ class Invoice(TimestampMixin, Base):
     matched_sms_id: Mapped[int | None] = mapped_column(ForeignKey("sms_transactions.id"), nullable=True)
     reference_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
-    merchant: Mapped[Merchant] = relationship(back_populates="invoices")
+    merchant: Mapped[Merchant] = relationship(back_populates="invoices", foreign_keys=[merchant_id])
     card: Mapped[BankCard] = relationship(back_populates="invoices")
 
 

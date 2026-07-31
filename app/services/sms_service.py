@@ -68,6 +68,41 @@ def normalize_source_id(value: str | None) -> str:
     return " ".join((value or "").strip().casefold().split())
 
 
+_CREDIT_INTENT_WORDS = (
+    "واریز", "واريز", "بستانکار", "بستانكار", "افزایش موجودی", "افزايش موجودي",
+    "به حساب شما نشست", "به حسابتان نشست", "به حساب شما واریز شد", "به حساب شما واريز شد",
+    "دریافت وجه", "دريافت وجه", "وصول", "deposit", "credited", "credit",
+)
+
+_NON_PAYMENT_WORDS = (
+    "رمز پویا", "رمز پويا", "رمز دوم", "otp", "کد تایید", "کد تأیید",
+    "برداشت", "بدهکار", "بدهكار", "خرید", "خريد", "کسر", "كسر",
+    "پاسخ دادیم", "تیکت", "تيکت", "سفارش جدید", "پنل کاربری", "لغو",
+)
+
+
+def _normalized_for_screening(value: str) -> str:
+    text = unicodedata.normalize("NFKC", value or "")
+    text = text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    text = text.replace("ي", "ی").replace("ك", "ک").replace("\u200c", " ")
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def should_surface_unconfirmed_sms(message: str, bank_code: str | None, amount_rial: int | None) -> bool:
+    """Return True only for messages that genuinely resemble an incoming payment."""
+    text = _normalized_for_screening(message)
+    if any(word.casefold() in text for word in _NON_PAYMENT_WORDS):
+        return False
+
+    has_credit_intent = any(word.casefold() in text for word in _CREDIT_INTENT_WORDS)
+    has_currency_amount = bool(
+        amount_rial
+        or re.search(r"\d[\d, .]{2,}\s*(?:ریال|ريال|تومان)", text, flags=re.IGNORECASE)
+    )
+    known_bank = normalize_bank_code(bank_code or "generic") != "generic"
+    return has_credit_intent and (has_currency_amount or known_bank)
+
+
 @dataclass(slots=True)
 class SmsIngestDiagnostic:
     result: str
@@ -174,8 +209,20 @@ async def ingest_sms(
             return existing, None, SmsIngestDiagnostic("duplicate", "اثر انگشت پیامک قبلاً ثبت شده است", notify=False)
 
     if not parsed.is_credit:
-        sms.status = "review"
-        return sms, None, SmsIngestDiagnostic("not_credit", "متن پیامک به‌عنوان واریز قطعی تشخیص داده نشد", notify=previous_status != "review")
+        if should_surface_unconfirmed_sms(message, parsed.bank_code, parsed.amount_rial):
+            sms.status = "review"
+            return sms, None, SmsIngestDiagnostic(
+                "not_credit",
+                "پیامک شبیه واریز است اما نشانه‌های کافی برای تأیید قطعی ندارد",
+                notify=previous_status != "review",
+            )
+
+        sms.status = "ignored"
+        return sms, None, SmsIngestDiagnostic(
+            "ignored_non_payment",
+            "پیامک غیرپرداختی شناسایی و بی‌صدا نادیده گرفته شد",
+            notify=False,
+        )
     if not parsed.amount_rial:
         sms.status = "review"
         return sms, None, SmsIngestDiagnostic("amount_not_found", "مبلغ واریز از متن پیامک استخراج نشد", notify=previous_status != "review")

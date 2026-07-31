@@ -28,8 +28,11 @@ from app.bot.keyboards import (
     main_menu,
     payment_created_menu,
     sms_webhook_menu,
+    wallet_menu,
+    wallet_topup_created_menu,
+    wallet_topup_menu,
 )
-from app.bot.states import AddCardState, CallbackConfigState, ManualInvoiceState
+from app.bot.states import AddCardState, CallbackConfigState, ManualInvoiceState, WalletTopUpState
 from app.bot.presentation import (
     DIVIDER,
     badge,
@@ -49,7 +52,7 @@ from app.core.config import settings
 from app.core.security import encrypt_text, random_secret
 from app.core.urls import validate_public_https_url
 from app.db.session import SessionLocal
-from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog
+from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
 from app.services.callback_service import send_paid_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
@@ -57,6 +60,7 @@ from app.services.invoice_service import (
     calculate_customer_fee,
     confirm_invoice_paid,
     create_invoice,
+    create_wallet_topup_invoice,
     release_invoice_reservation,
 )
 from app.services.merchant_service import credit_wallet, get_or_create_merchant, regenerate_api_key
@@ -232,6 +236,12 @@ async def wallet(callback: CallbackQuery):
     reserve_percent = 0
     if merchant.wallet_balance_rial > 0:
         reserve_percent = round((merchant.reserved_balance_rial / merchant.wallet_balance_rial) * 100)
+    fee_label = "رایگان (غیرفعال)" if merchant.verification_fee_rial == 0 else money_toman(merchant.verification_fee_rial)
+    footer = (
+        "کارمزد این حساب غیرفعال است؛ صدور و تأیید فاکتور بدون نیاز به اعتبار کیف پول انجام می‌شود."
+        if merchant.verification_fee_rial == 0
+        else "هزینه فقط پس از تأیید قطعی پرداخت کسر می‌شود؛ فاکتور منقضی یا لغوشده هزینه‌ای ندارد."
+    )
     text = panel(
         "💰",
         "کیف پول کارمزد",
@@ -239,15 +249,171 @@ async def wallet(callback: CallbackQuery):
             f"💵 موجودی کل: <b>{money_toman(merchant.wallet_balance_rial)}</b>",
             f"🔒 اعتبار رزروشده: <b>{money_toman(merchant.reserved_balance_rial)}</b>",
             f"✅ اعتبار قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
-            f"🧾 هزینه هر تأیید موفق: <b>{money_toman(merchant.verification_fee_rial)}</b>",
+            f"🧾 هزینه هر تأیید موفق: <b>{fee_label}</b>",
             "",
             f"📊 نسبت اعتبار رزروشده: <b>{reserve_percent}%</b>",
         ],
-        subtitle="کنترل اعتبار موردنیاز برای تأیید پرداخت‌ها",
-        footer="هزینه فقط پس از تأیید قطعی پرداخت کسر می‌شود؛ فاکتور منقضی یا لغوشده هزینه‌ای ندارد.",
+        subtitle="شارژ و مدیریت اعتبار خدمات پرداخت",
+        footer=footer,
     )
-    await callback.message.edit_text(text, reply_markup=main_menu(merchant.is_admin))
+    await callback.message.edit_text(text, reply_markup=wallet_menu())
     await callback.answer()
+
+
+@router.callback_query(F.data == "wallet:topup")
+async def wallet_topup_start(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
+    await callback.message.edit_text(
+        panel(
+            "➕",
+            "شارژ آنلاین کیف پول",
+            [
+                "مبلغ موردنظر را انتخاب کنید یا مبلغ دلخواه را وارد کنید.",
+                "پس از واریز و دریافت پیامک بانک، اعتبار کیف پول به‌صورت خودکار افزایش می‌یابد.",
+                "",
+                "🔢 کد تطبیق ۱ تا ۹۹۹ تومان به مبلغ افزوده می‌شود و همان مبلغ نیز به اعتبار شما اضافه خواهد شد.",
+            ],
+            subtitle="شارژ خودکار با تأیید پیامک بانکی",
+            footer="حداقل شارژ ۱۰٬۰۰۰ تومان است.",
+        ),
+        reply_markup=wallet_topup_menu(),
+    )
+    await callback.answer()
+
+
+async def _create_wallet_topup(target: Message, user_id: int, amount_toman: int, *, edit: bool) -> None:
+    try:
+        async with SessionLocal() as session:
+            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == user_id))
+            if not merchant:
+                raise ValueError("حساب پذیرنده یافت نشد")
+            invoice = await create_wallet_topup_invoice(session, merchant, amount_toman * 10)
+            card = await session.get(BankCard, invoice.card_id)
+            await session.commit()
+        payment_url = f"{settings.base_url}/pay/{invoice.token}"
+        body = success(
+            "درخواست شارژ آماده پرداخت است",
+            "\n".join(
+                [
+                    f"💵 مبلغ انتخابی: <b>{amount_toman:,} تومان</b>",
+                    f"🔢 کد تطبیق: <b>+{money_toman(invoice.unique_amount_rial)}</b>",
+                    f"💳 مبلغ دقیق واریز: <b>{money_toman(invoice.payable_amount_rial)}</b>",
+                    f"💰 اعتبار نهایی قابل افزودن: <b>{money_toman(invoice.payable_amount_rial)}</b>",
+                    f"🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
+                    f"⏳ وضعیت: <b>{badge('pending')}</b>",
+                    "",
+                    f"🔗 لینک پرداخت:\n{payment_url}",
+                ]
+            ),
+            footer="پس از تأیید پیامک بانکی، کیف پول به‌صورت خودکار شارژ می‌شود.",
+        )
+        if edit:
+            await target.edit_text(body, reply_markup=wallet_topup_created_menu(payment_url))
+        else:
+            await target.answer(body, reply_markup=wallet_topup_created_menu(payment_url))
+    except Exception as exc:
+        body = error(
+            "درخواست شارژ ساخته نشد",
+            f"{esc(str(exc))}",
+            footer="در صورت نبود کارت دریافت سامانه، مدیر باید یک کارت فعال در حساب مدیریتی ثبت کند.",
+        )
+        if edit:
+            await target.edit_text(body, reply_markup=wallet_topup_menu())
+        else:
+            await target.answer(body, reply_markup=wallet_topup_menu())
+
+
+@router.callback_query(F.data.startswith("wallet:topup:"))
+async def wallet_topup_amount_button(callback: CallbackQuery, state: FSMContext):
+    value = callback.data.rsplit(":", 1)[1]
+    if value == "custom":
+        await state.set_state(WalletTopUpState.amount)
+        await callback.message.edit_text(
+            panel(
+                "✏️",
+                "مبلغ دلخواه شارژ",
+                ["مبلغ را به تومان و فقط به‌صورت عدد وارد کنید.", "نمونه: <code>350000</code>"],
+                footer="حداقل ۱۰٬۰۰۰ و حداکثر ۱۰۰٬۰۰۰٬۰۰۰ تومان",
+            ),
+            reply_markup=flow_cancel_menu(),
+        )
+        return await callback.answer()
+    try:
+        amount_toman = int(value)
+    except ValueError:
+        return await callback.answer("مبلغ نامعتبر است.", show_alert=True)
+    await state.clear()
+    await _create_wallet_topup(callback.message, callback.from_user.id, amount_toman, edit=True)
+    await callback.answer()
+
+
+@router.message(WalletTopUpState.amount)
+async def wallet_topup_custom_amount(message: Message, state: FSMContext):
+    raw = digits_only(message.text)
+    if not raw:
+        return await message.answer("مبلغ را فقط به‌صورت عدد وارد کنید.", reply_markup=flow_cancel_menu())
+    amount_toman = int(raw)
+    if amount_toman < 10_000 or amount_toman > 100_000_000:
+        return await message.answer(
+            "مبلغ باید بین ۱۰٬۰۰۰ تا ۱۰۰٬۰۰۰٬۰۰۰ تومان باشد.",
+            reply_markup=flow_cancel_menu(),
+        )
+    await state.clear()
+    await _create_wallet_topup(message, message.from_user.id, amount_toman, edit=False)
+
+
+@router.callback_query(F.data == "wallet:ledger")
+async def wallet_ledger(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        entries = list(
+            (
+                await session.scalars(
+                    select(WalletLedger)
+                    .where(WalletLedger.merchant_id == merchant.id)
+                    .order_by(WalletLedger.id.desc())
+                    .limit(12)
+                )
+            ).all()
+        )
+
+    labels = {
+        "wallet_topup": "شارژ آنلاین",
+        "admin_credit": "شارژ مدیریتی",
+        "deposit": "افزایش اعتبار",
+        "admin_debit": "کسر مدیریتی",
+        "verification_fee": "کارمزد تأیید",
+        "fee_reserved": "رزرو کارمزد",
+        "fee_released": "آزادسازی کارمزد",
+    }
+    lines = []
+    for entry in entries:
+        sign = "+" if entry.amount_rial >= 0 else "−"
+        amount = money_toman(abs(entry.amount_rial))
+        created = entry.created_at.strftime("%Y-%m-%d %H:%M") if entry.created_at else "-"
+        lines.append(
+            f"• <b>{labels.get(entry.entry_type, entry.entry_type)}</b>  {sign}{amount}\n"
+            f"  مانده: {money_toman(entry.balance_after_rial)}  •  <code>{created}</code>"
+        )
+    if not lines:
+        lines = ["هنوز تراکنشی در کیف پول ثبت نشده است."]
+    await callback.message.edit_text(
+        panel(
+            "📜",
+            "گردش کیف پول",
+            lines,
+            subtitle="۱۲ رویداد مالی اخیر",
+            footer="رزرو کارمزد موجودی را کم نمی‌کند و پس از لغو یا انقضای فاکتور آزاد می‌شود.",
+        ),
+        reply_markup=wallet_menu(),
+    )
+    await callback.answer()
+
 
 @router.callback_query(F.data == "fee")
 async def fee(callback: CallbackQuery):
@@ -255,18 +421,24 @@ async def fee(callback: CallbackQuery):
     if not merchant:
         return await callback.answer("ابتدا وارد حساب پذیرنده شوید.", show_alert=True)
 
+    fee_status = "رایگان (غیرفعال)" if merchant.verification_fee_rial == 0 else money_toman(merchant.verification_fee_rial)
     text = panel(
         "⚙️",
         "سیاست پرداخت کارمزد",
         [
-            f"تنظیم فعلی: <b>{fee_title(merchant.fee_mode)}</b>",
+            f"هزینه هر تأیید: <b>{fee_status}</b>",
+            f"تنظیم فعلی تقسیم هزینه: <b>{fee_title(merchant.fee_mode)}</b>",
             "",
             "👤 <b>مشتری</b> — کل هزینه تأیید به مبلغ فاکتور افزوده می‌شود.",
             "🤝 <b>تقسیم مساوی</b> — نیمی از هزینه به مشتری و نیم دیگر به پذیرنده تعلق می‌گیرد.",
             "🏪 <b>پذیرنده</b> — مبلغ سفارش برای مشتری بدون افزایش باقی می‌ماند.",
         ],
         subtitle="نحوه تقسیم هزینه تأیید هر تراکنش",
-        footer="این انتخاب، پیش‌فرض فاکتورهای بعدی است و هنگام ساخت هر فاکتور قابل تغییر خواهد بود.",
+        footer=(
+            "کارمزد این حساب رایگان است؛ سیاست تقسیم هزینه تا زمان فعال‌شدن دوباره کارمزد اثری ندارد."
+            if merchant.verification_fee_rial == 0
+            else "این انتخاب، پیش‌فرض فاکتورهای بعدی است و هنگام ساخت هر فاکتور قابل تغییر خواهد بود."
+        ),
     )
     await callback.message.edit_text(text, reply_markup=fee_menu(merchant.fee_mode))
     await callback.answer()
@@ -589,12 +761,22 @@ async def invoice_description(message: Message, state: FSMContext):
         return await message.answer("عنوان فاکتور الزامی است.", reply_markup=flow_cancel_menu())
 
     await state.update_data(description=description)
-    await state.set_state(ManualInvoiceState.fee_mode)
     merchant = await current_merchant(message.from_user.id)
     if not merchant:
         await state.clear()
         return await message.answer("حساب پذیرنده یافت نشد. لطفاً دستور /start را ارسال کنید.")
 
+    if merchant.verification_fee_rial == 0:
+        await state.update_data(fee_mode=merchant.fee_mode)
+        await message.answer(
+            info(
+                "کارمزد این حساب رایگان است",
+                "مرحله تقسیم هزینه حذف شد و فاکتور بدون رزرو یا کسر اعتبار صادر می‌شود.",
+            )
+        )
+        return await show_invoice_cards(message, state, message.from_user.id)
+
+    await state.set_state(ManualInvoiceState.fee_mode)
     await message.answer(
         panel(
             "⚙️",
@@ -756,7 +938,7 @@ async def prepare_invoice_preview(
         [
             f"📝 عنوان سفارش: <b>{esc(data['description'])}</b>",
             f"💵 مبلغ پایه: <b>{money_toman(base_rial)}</b>",
-            f"🧾 هزینه تأیید: <b>{money_toman(fee_rial)}</b>",
+            f"🧾 هزینه تأیید: <b>{'رایگان' if fee_rial == 0 else money_toman(fee_rial)}</b>",
             f"👤 سهم مشتری از هزینه: <b>{money_toman(customer_fee_rial)}</b>",
             f"🔢 کد تطبیق یکتا: <b>۱ تا ۹۹۹ تومان</b>",
             f"💳 مبلغ پیش از کد تطبیق: <b>{money_toman(nominal_payable_rial)}</b>",
@@ -766,7 +948,11 @@ async def prepare_invoice_preview(
             f"⏱ اعتبار لینک: <b>{settings.invoice_ttl_minutes} دقیقه</b>",
         ],
         subtitle="آخرین مرحله پیش از صدور لینک پرداخت",
-        footer="پس از صدور، هزینه تأیید در کیف پول رزرو می‌شود و در صورت لغو یا انقضا آزاد خواهد شد.",
+        footer=(
+            "این فاکتور بدون کارمزد صادر می‌شود و اعتباری از کیف پول رزرو نخواهد شد."
+            if fee_rial == 0
+            else "پس از صدور، هزینه تأیید در کیف پول رزرو می‌شود و در صورت لغو یا انقضا آزاد خواهد شد."
+        ),
     )
 
     if edit:
@@ -1144,7 +1330,7 @@ async def admin_set_fee(message: Message):
     try:
         target_id = int(parts[1])
         fee_rial = int(parts[2]) * 10
-        if fee_rial <= 0:
+        if fee_rial < 0:
             raise ValueError
     except ValueError:
         return await message.answer("شناسه یا مبلغ نامعتبر است.")
@@ -1157,7 +1343,8 @@ async def admin_set_fee(message: Message):
             return await message.answer("کاربر مقصد یافت نشد.")
         target.verification_fee_rial = fee_rial
         await session.commit()
-    await message.answer(f"✅ کارمزد کاربر {target_id} روی {int(parts[2]):,} تومان تنظیم شد.")
+    fee_label = "رایگان" if int(parts[2]) == 0 else f"{int(parts[2]):,} تومان"
+    await message.answer(f"✅ کارمزد کاربر {target_id} روی {fee_label} تنظیم شد.")
 
 
 @router.message(Command("reviews"))

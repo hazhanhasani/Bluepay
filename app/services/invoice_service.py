@@ -14,6 +14,8 @@ from app.models import AmountReservation, BankCard, Invoice, Merchant, WalletLed
 VALID_FEE_MODES = {"customer", "split", "merchant"}
 UNIQUE_AMOUNT_MIN_TOMAN = 1
 UNIQUE_AMOUNT_MAX_TOMAN = 999
+WALLET_TOPUP_MIN_RIAL = 100_000  # 10,000 toman
+WALLET_TOPUP_MAX_RIAL = 1_000_000_000  # 100,000,000 toman
 
 
 def utcnow() -> datetime:
@@ -102,8 +104,8 @@ async def create_invoice(
     if not locked or not locked.is_active:
         raise ValueError("حساب پذیرنده فعال نیست")
 
-    fee = locked.verification_fee_rial
-    if locked.available_balance_rial < fee:
+    fee = max(0, locked.verification_fee_rial)
+    if fee > 0 and locked.available_balance_rial < fee:
         raise ValueError("موجودی قابل استفاده کیف پول برای رزرو کارمزد کافی نیست")
 
     card = await choose_card(session, locked.id, card_id)
@@ -138,19 +140,89 @@ async def create_invoice(
         callback_secret=locked.callback_secret,
     )
     session.add(invoice)
-    locked.reserved_balance_rial += fee
     await session.flush()
-    session.add(
-        WalletLedger(
-            merchant_id=locked.id,
-            invoice_id=invoice.id,
-            entry_type="fee_reserved",
-            amount_rial=-fee,
-            balance_after_rial=locked.wallet_balance_rial,
-            description=f"رزرو کارمزد فاکتور {invoice.order_id}",
-            idempotency_key=f"reserve:{invoice.id}",
+    if fee > 0:
+        locked.reserved_balance_rial += fee
+        session.add(
+            WalletLedger(
+                merchant_id=locked.id,
+                invoice_id=invoice.id,
+                entry_type="fee_reserved",
+                amount_rial=-fee,
+                balance_after_rial=locked.wallet_balance_rial,
+                description=f"رزرو کارمزد فاکتور {invoice.order_id}",
+                idempotency_key=f"reserve:{invoice.id}",
+            )
         )
+        await session.flush()
+    return invoice
+
+
+async def create_wallet_topup_invoice(
+    session: AsyncSession,
+    target_merchant: Merchant,
+    amount_rial: int,
+    ttl_minutes: int | None = None,
+) -> Invoice:
+    """Create a fee-free internal invoice that charges the platform card.
+
+    The payment is collected on an active card owned by the primary admin. After
+    bank-SMS confirmation, the exact paid amount (including the matching suffix)
+    is credited to the target merchant wallet, so no part of the payment is lost.
+    """
+    if amount_rial < WALLET_TOPUP_MIN_RIAL:
+        raise ValueError("حداقل مبلغ شارژ کیف پول ۱۰٬۰۰۰ تومان است")
+    if amount_rial > WALLET_TOPUP_MAX_RIAL:
+        raise ValueError("حداکثر مبلغ شارژ کیف پول ۱۰۰٬۰۰۰٬۰۰۰ تومان است")
+
+    target = await session.scalar(select(Merchant).where(Merchant.id == target_merchant.id).with_for_update())
+    if not target or not target.is_active:
+        raise ValueError("حساب پذیرنده فعال نیست")
+
+    collection_owner = await session.scalar(
+        select(Merchant)
+        .join(BankCard, BankCard.merchant_id == Merchant.id)
+        .where(
+            Merchant.is_admin.is_(True),
+            Merchant.is_active.is_(True),
+            BankCard.is_active.is_(True),
+        )
+        .order_by(Merchant.id.asc(), BankCard.is_default.desc(), BankCard.priority.asc(), BankCard.id.asc())
+        .limit(1)
     )
+    if not collection_owner:
+        raise ValueError("روش شارژ فعال نیست؛ مدیر باید یک کارت مقصد فعال در حساب مدیریتی ثبت کند")
+
+    card = await choose_card(session, collection_owner.id)
+    token = secrets.token_urlsafe(18)
+    expires_at = utcnow() + timedelta(minutes=ttl_minutes or settings.invoice_ttl_minutes)
+    unique_amount_rial, payable_amount_rial = await reserve_unique_payable_amount(
+        session,
+        card_id=card.id,
+        nominal_amount_rial=amount_rial,
+        invoice_token=token,
+        expires_at=expires_at,
+    )
+    invoice = Invoice(
+        token=token,
+        merchant_id=collection_owner.id,
+        card_id=card.id,
+        order_id=f"TOPUP-{target.id}-{secrets.token_hex(5).upper()}",
+        description=f"شارژ کیف پول BP-{target.id:06d}",
+        base_amount_rial=amount_rial,
+        fee_amount_rial=0,
+        customer_fee_rial=0,
+        unique_amount_rial=unique_amount_rial,
+        payable_amount_rial=payable_amount_rial,
+        fee_mode="merchant",
+        purpose="wallet_topup",
+        wallet_target_merchant_id=target.id,
+        status="pending",
+        expires_at=expires_at,
+        callback_url=None,
+        callback_secret=None,
+    )
+    session.add(invoice)
     await session.flush()
     return invoice
 
@@ -161,22 +233,25 @@ async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, s
     merchant = await session.scalar(select(Merchant).where(Merchant.id == invoice.merchant_id).with_for_update())
     if not merchant:
         return False
-    merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - invoice.fee_amount_rial)
+    fee = max(0, invoice.fee_amount_rial)
+    if fee > 0:
+        merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - fee)
     invoice.status = status
     await session.execute(
         delete(AmountReservation).where(AmountReservation.invoice_token == invoice.token)
     )
-    session.add(
-        WalletLedger(
-            merchant_id=merchant.id,
-            invoice_id=invoice.id,
-            entry_type="fee_released",
-            amount_rial=invoice.fee_amount_rial,
-            balance_after_rial=merchant.wallet_balance_rial,
-            description=f"آزادسازی کارمزد فاکتور {invoice.order_id}",
-            idempotency_key=f"release:{invoice.id}",
+    if fee > 0:
+        session.add(
+            WalletLedger(
+                merchant_id=merchant.id,
+                invoice_id=invoice.id,
+                entry_type="fee_released",
+                amount_rial=fee,
+                balance_after_rial=merchant.wallet_balance_rial,
+                description=f"آزادسازی کارمزد فاکتور {invoice.order_id}",
+                idempotency_key=f"release:{invoice.id}",
+            )
         )
-    )
     return True
 
 
@@ -199,8 +274,20 @@ async def confirm_invoice_paid(
     if not merchant:
         return None
 
-    merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - invoice.fee_amount_rial)
-    merchant.wallet_balance_rial -= invoice.fee_amount_rial
+    wallet_target = None
+    if invoice.purpose == "wallet_topup":
+        if not invoice.wallet_target_merchant_id:
+            return None
+        wallet_target = await session.scalar(
+            select(Merchant).where(Merchant.id == invoice.wallet_target_merchant_id).with_for_update()
+        )
+        if not wallet_target:
+            return None
+
+    fee = max(0, invoice.fee_amount_rial)
+    if fee > 0:
+        merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - fee)
+        merchant.wallet_balance_rial -= fee
     invoice.status = "paid"
     invoice.paid_at = utcnow()
     invoice.matched_sms_id = sms_id
@@ -209,17 +296,34 @@ async def confirm_invoice_paid(
         delete(AmountReservation).where(AmountReservation.invoice_token == invoice.token)
     )
 
-    session.add(
-        WalletLedger(
-            merchant_id=merchant.id,
-            invoice_id=invoice.id,
-            entry_type="verification_fee",
-            amount_rial=-invoice.fee_amount_rial,
-            balance_after_rial=merchant.wallet_balance_rial,
-            description=f"کسر کارمزد تأیید فاکتور {invoice.order_id}",
-            idempotency_key=f"paid-fee:{invoice.id}",
+    if fee > 0:
+        session.add(
+            WalletLedger(
+                merchant_id=merchant.id,
+                invoice_id=invoice.id,
+                entry_type="verification_fee",
+                amount_rial=-fee,
+                balance_after_rial=merchant.wallet_balance_rial,
+                description=f"کسر کارمزد تأیید فاکتور {invoice.order_id}",
+                idempotency_key=f"paid-fee:{invoice.id}",
+            )
         )
-    )
+
+    if wallet_target is not None:
+        credited_rial = invoice.payable_amount_rial
+        wallet_target.wallet_balance_rial += credited_rial
+        session.add(
+            WalletLedger(
+                merchant_id=wallet_target.id,
+                invoice_id=invoice.id,
+                entry_type="wallet_topup",
+                amount_rial=credited_rial,
+                balance_after_rial=wallet_target.wallet_balance_rial,
+                description=f"شارژ آنلاین کیف پول با فاکتور {invoice.order_id}",
+                idempotency_key=f"wallet-topup:{invoice.id}",
+            )
+        )
+
     await session.flush()
     return invoice
 

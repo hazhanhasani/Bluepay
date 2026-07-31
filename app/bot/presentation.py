@@ -27,6 +27,7 @@ SMS_RESULT_LABELS = {
     "matched": "تطبیق و تأیید شد",
     "duplicate": "پیامک تکراری",
     "not_credit": "واریز قطعی تشخیص داده نشد",
+    "ignored_non_payment": "پیامک غیرپرداختی نادیده گرفته شد",
     "no_amount_candidate": "فاکتور فعال با مبلغ دقیق یافت نشد",
     "ambiguous_amount": "چند فاکتور هم‌مبلغ یافت شد",
     "bank_mismatch": "بانک پیامک با کارت مقصد مطابقت ندارد",

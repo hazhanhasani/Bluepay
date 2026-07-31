@@ -78,7 +78,8 @@ def merchant_detail_keyboard(merchant: Merchant, page: int, self_id: int) -> Inl
             InlineKeyboardButton(text="➕ شارژ کیف پول", callback_data=f"admin:mcredit:{merchant.id}:{page}"),
             InlineKeyboardButton(text="➖ کسر از کیف پول", callback_data=f"admin:mdebit:{merchant.id}:{page}"),
         ],
-        [InlineKeyboardButton(text="⚙️ تعیین کارمزد", callback_data=f"admin:mfee:{merchant.id}:{page}")],
+        [InlineKeyboardButton(text="⚙️ تغییر مبلغ کارمزد", callback_data=f"admin:mfee:{merchant.id}:{page}")],
+        [InlineKeyboardButton(text="🎁 کارمزد رایگان", callback_data=f"admin:mfeefree:{merchant.id}:{page}")],
     ]
     if merchant.telegram_user_id != self_id:
         label = "✅ فعال‌کردن حساب" if not merchant.is_active else "⛔ غیرفعال‌کردن حساب"
@@ -270,7 +271,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
             f"💼 موجودی کل: <b>{money_toman(merchant.wallet_balance_rial)}</b>",
             f"🔒 رزروشده: <b>{money_toman(merchant.reserved_balance_rial)}</b>",
             f"✅ قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
-            f"🧾 هزینه هر تأیید: <b>{money_toman(merchant.verification_fee_rial)}</b>",
+            f"🧾 هزینه هر تأیید: <b>{'رایگان' if merchant.verification_fee_rial == 0 else money_toman(merchant.verification_fee_rial)}</b>",
             f"⚙️ مدل کارمزد: <b>{esc(fee_mode_label(merchant.fee_mode))}</b>",
             "",
             "<b>وضعیت اتصال</b>",
@@ -377,6 +378,27 @@ async def admin_wallet_adjust_amount(message: Message, state: FSMContext):
     )
 
 
+@router.callback_query(F.data.startswith("admin:mfeefree:"))
+async def admin_fee_free(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    _, _, merchant_id, page = callback.data.split(":")
+    async with SessionLocal() as session:
+        merchant = await session.get(Merchant, int(merchant_id))
+        if not merchant:
+            return await callback.answer("پذیرنده یافت نشد.", show_alert=True)
+        merchant.verification_fee_rial = 0
+        await session.commit()
+    await callback.message.edit_text(
+        success(
+            "کارمزد غیرفعال شد",
+            "از این پس فاکتورهای جدید این پذیرنده بدون هزینه تأیید صادر می‌شوند و به موجودی کیف پول نیاز ندارند.",
+        ),
+        reply_markup=merchant_detail_keyboard(merchant, int(page), callback.from_user.id),
+    )
+    await callback.answer("کارمزد رایگان شد.")
+
+
 @router.callback_query(F.data.startswith("admin:mfee:"))
 async def admin_fee_start(callback: CallbackQuery, state: FSMContext):
     if not await require_admin_callback(callback):
@@ -384,7 +406,9 @@ async def admin_fee_start(callback: CallbackQuery, state: FSMContext):
     _, _, merchant_id, page = callback.data.split(":")
     await state.set_state(AdminFeeState.amount)
     await state.update_data(merchant_id=int(merchant_id), page=int(page))
-    await callback.message.answer("مبلغ کارمزد هر تأیید را به تومان و فقط به‌صورت عدد وارد کنید:")
+    await callback.message.answer(
+        "مبلغ کارمزد هر تأیید را به تومان وارد کنید. برای غیرفعال‌کردن کارمزد و ارائه سرویس رایگان، عدد <code>0</code> را ارسال کنید:"
+    )
     await callback.answer()
 
 
@@ -394,8 +418,8 @@ async def admin_fee_amount(message: Message, state: FSMContext):
         await state.clear()
         return
     raw = "".join(ch for ch in (message.text or "") if ch.isdigit())
-    if not raw or int(raw) <= 0:
-        return await message.answer("مبلغ کارمزد باید بیشتر از صفر باشد.")
+    if not raw:
+        return await message.answer("مبلغ کارمزد باید عددی باشد؛ عدد صفر یعنی کارمزد رایگان.")
     data = await state.get_data()
     async with SessionLocal() as session:
         merchant = await session.get(Merchant, data["merchant_id"])
@@ -405,8 +429,9 @@ async def admin_fee_amount(message: Message, state: FSMContext):
         merchant.verification_fee_rial = int(raw) * 10
         await session.commit()
     await state.clear()
+    fee_label = "رایگان (غیرفعال)" if int(raw) == 0 else f"{int(raw):,} تومان"
     await message.answer(
-        f"✅ کارمزد روی <b>{int(raw):,} تومان</b> تنظیم شد.",
+        f"✅ کارمزد روی <b>{fee_label}</b> تنظیم شد.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="بازگشت به پذیرنده", callback_data=f"admin:merchant:{merchant.id}:{data['page']}")]
