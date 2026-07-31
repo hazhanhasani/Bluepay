@@ -222,19 +222,17 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       <section class="card" id="sms-webhook">
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
-        <h3>قالب واقعی قابل درج در SMS Forwarder</h3>
-        <pre><code>DEVICE:phone-1
-SENDER:{Incoming Number}
-MESSAGE:
-{Message Body}</code><button onclick="copyPre(this)">کپی قالب</button></pre>
-        <div class="notice">این قالب را در قسمت Message Template برنامه <b>SMS Forwarder</b> قرار بده. مقدار <code>phone-1</code> یک نام ثابت دلخواه برای این گوشی است. برای گوشی دوم از <code>phone-2</code> استفاده کن.</div>
+        <h3>بدنه JSON معتبر و آماده درج در SMS Forwarder</h3>
+        <pre><code>{"device_id":"phone-1","sender":"{Incoming Number}","message":"{Message Body}"}</code><button onclick="copyPre(this)">کپی JSON</button></pre>
+        <div class="notice">در بخش Body حتماً گزینه <b>JSON</b> را انتخاب کن. مقدار <code>phone-1</code> نام ثابت این گوشی است؛ برای گوشی دوم از <code>phone-2</code> استفاده کن.</div>
         <div class="steps-list">
           <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی بساز.</span></div>
-          <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را POST انتخاب کن.</span></div>
+          <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را <code>POST</code> انتخاب کن.</span></div>
           <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
-          <div><b>۴</b><span>قالب آماده بالا را در بخش Message Template کپی کن.</span></div>
-          <div><b>۵</b><span>متغیرهای <code>{Incoming Number}</code> و <code>{Message Body}</code> را از منوی متغیرهای خود اپ انتخاب کن تا مقدار واقعی هر پیامک جایگزین شود.</span></div>
-          <div><b>۶</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
+          <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب کن.</span></div>
+          <div><b>۵</b><span>JSON یک‌خطی بالا را کپی کن.</span></div>
+          <div><b>۶</b><span>متغیرهای <code>{Incoming Number}</code> و <code>{Message Body}</code> را از منوی متغیرهای خود اپ انتخاب کن تا مقدار واقعی هر پیامک جایگزین شود.</span></div>
+          <div><b>۷</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
         </div>
         <details>
           <summary>نمونه JSON برای برنامه‌های دیگر</summary>

@@ -61,11 +61,9 @@ def _parse_text_sms_payload(raw: str) -> dict:
     except Exception:
         pass
 
-    # Recommended Zerogic SMS Forwarder template:
-    # DEVICE:phone-1
-    # SENDER:{Incoming Number}
-    # MESSAGE:
-    # {Message Body}
+    # Legacy text template is still accepted for backward compatibility.
+    # Recommended SMS Forwarder JSON body:
+    # {"device_id":"phone-1","sender":"{Incoming Number}","message":"{Message Body}"}
     marker = re.match(
         r"(?is)^\s*DEVICE\s*:\s*(?P<device>[^\r\n]*)[\r\n]+"
         r"\s*SENDER\s*:\s*(?P<sender>[^\r\n]*)[\r\n]+"
@@ -177,7 +175,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.8",
+        "version": "0.2.9",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }

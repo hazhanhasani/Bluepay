@@ -777,26 +777,24 @@ async def sms_info(callback: CallbackQuery):
 🌐 <b>Webhook URL</b>
 <code>{html.escape(webhook_url)}</code>
 
-📤 روش درخواست
-<code>POST</code> — بدنه متنی یا JSON هر دو پذیرفته می‌شوند.
+📤 <b>تنظیم درخواست</b>
+روش را روی <code>POST</code> و نوع Body را روی <code>JSON</code> قرار بده.
 
-📦 <b>بدنه واقعی برای اپ SMS Forwarder</b>
-این متن را عیناً در بخش قالب پیام قرار بده؛ فقط <code>phone-1</code> را برای هر گوشی یک‌بار نام‌گذاری کن:
+📦 <b>بدنه معتبر و آماده کپی</b>
+این مقدار را دقیقاً به‌صورت یک‌خطی داخل Body وارد کن:
 
-<code>DEVICE:phone-1
-SENDER:{{Incoming Number}}
-MESSAGE:
-{{Message Body}}</code>
+<code>{{"device_id":"phone-1","sender":"{{Incoming Number}}","message":"{{Message Body}}"}}</code>
 
 🏦 نیازی به نوشتن نام بانک یا <code>bank_code</code> نیست؛ سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.
 
 <b>راهنمای اتصال در SMS Forwarder</b>
-1️⃣ نوع مقصد را Webhook URL و روش را POST انتخاب کن.
-2️⃣ آدرس بالا را بدون تغییر وارد کن.
-3️⃣ قالب چهارخطی بالا را در Message Template قرار بده.
-4️⃣ متغیرهای <code>{{Incoming Number}}</code> و <code>{{Message Body}}</code> را از فهرست متغیرهای خود اپ انتخاب کن.
-5️⃣ برای گوشی دوم، فقط <code>phone-1</code> را مثلاً به <code>phone-2</code> تغییر بده.
-6️⃣ یک پیامک آزمایشی بفرست و پاسخ <code>success: true</code> را بررسی کن.
+1️⃣ روش درخواست را <code>POST</code> انتخاب کن.
+2️⃣ آدرس Webhook بالا را بدون تغییر وارد کن.
+3️⃣ در بخش Body گزینه <code>JSON</code> را انتخاب کن.
+4️⃣ بدنه یک‌خطی بالا را کپی کن.
+5️⃣ متغیرهای <code>{{Incoming Number}}</code> و <code>{{Message Body}}</code> را از فهرست متغیرهای خود برنامه انتخاب کن.
+6️⃣ برای گوشی دوم، فقط مقدار <code>phone-1</code> را مثلاً به <code>phone-2</code> تغییر بده.
+7️⃣ یک پیامک آزمایشی بفرست و پاسخ <code>success: true</code> را بررسی کن.
 
 🏦 پوشش فعلی: <b>{len(BANK_PROFILES)} بانک، مؤسسه و برند بانکی</b>
 ━━━━━━━━━━━━━━━━

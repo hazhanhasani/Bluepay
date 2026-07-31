@@ -1,7 +1,7 @@
 {
   "name": "Direct Payment Gateway Bot",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "min_version": "0.1.0",
-  "description": "بدنه واقعی SMS Forwarder بدون بانک ثابت، قالب آماده با Incoming Number و Message Body، تشخیص خودکار بانک و پذیرش JSON/text/form با نام‌های فیلد متداول",
+  "description": "اصلاح متن راهنمای SMS Forwarder: بدنه JSON معتبر یک‌خطی با Incoming Number و Message Body، انتخاب صریح POST و JSON، بدون بانک ثابت",
   "run_migrations": true
 }

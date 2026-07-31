@@ -107,7 +107,7 @@ X-API-Key: gw_xxx
 
 ## Webhook پیامک
 
-آدرس اختصاصی از داخل ربات نمایش داده می‌شود. در برنامه SMS Forwarder قالب واقعی زیر را قرار بده:
+آدرس اختصاصی از داخل ربات نمایش داده می‌شود. در برنامه SMS Forwarder نوع Body را روی JSON بگذار و بدنه معتبر زیر را به‌صورت یک‌خطی قرار بده:
 
 ```http
 POST /webhooks/sms
@@ -116,10 +116,7 @@ Content-Type: text/plain یا application/json
 ```
 
 ```text
-DEVICE:phone-1
-SENDER:{Incoming Number}
-MESSAGE:
-{Message Body}
+{"device_id":"phone-1","sender":"{Incoming Number}","message":"{Message Body}"}
 ```
 
 ## آپدیت بعدی
@@ -216,10 +213,7 @@ Content-Type: text/plain یا application/json
 ```
 
 ```text
-DEVICE:phone-1
-SENDER:{Incoming Number}
-MESSAGE:
-{Message Body}
+{"device_id":"phone-1","sender":"{Incoming Number}","message":"{Message Body}"}
 ```
 
 توکن داخل URL محرمانه است و پیامک دریافت‌شده فقط با فاکتورهای همان پذیرنده تطبیق داده می‌شود. نام بانک ثابت نیست و از sender و متن واقعی پیامک تشخیص داده می‌شود.

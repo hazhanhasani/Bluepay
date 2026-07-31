@@ -33,7 +33,7 @@ async def _deliver(url: str, secret: str, payload: dict, event: str, *, retry: b
         "X-Gateway-Event": event,
         "X-Gateway-Delivery": delivery_id,
         "X-Gateway-Timestamp": datetime.now(timezone.utc).isoformat(),
-        "User-Agent": "BluePay-Gateway/0.2.8",
+        "User-Agent": "BluePay-Gateway/0.2.9",
     }
 
     last_result = "not_sent"
