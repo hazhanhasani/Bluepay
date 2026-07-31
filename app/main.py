@@ -21,6 +21,7 @@ from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models import Invoice
 from app.services.invoice_service import release_invoice_reservation
+from app.services.migration_service import run_runtime_migrations
 from app.services.settings_service import ensure_runtime_settings
 from app.services.storage_service import storage
 
@@ -81,6 +82,7 @@ async def lifespan(app: FastAPI):
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+    await run_runtime_migrations(engine)
     async with SessionLocal() as session:
         await ensure_runtime_settings(session)
         await session.commit()
@@ -105,7 +107,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.5", lifespan=lifespan)
+app = FastAPI(title="Direct Payment Gateway Bot", version="0.2.6", lifespan=lifespan, docs_url="/openapi", redoc_url=None)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

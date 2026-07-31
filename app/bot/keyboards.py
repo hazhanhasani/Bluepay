@@ -33,14 +33,54 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🏦  کارت‌های من", callback_data="cards"),
         ],
         [
-            InlineKeyboardButton(text="🔑  API پذیرنده", callback_data="api"),
+            InlineKeyboardButton(text="🔌  آموزش و اتصال", callback_data="connect"),
             InlineKeyboardButton(text="⚙️  تنظیم کارمزد", callback_data="fee"),
         ],
-        [InlineKeyboardButton(text="🔗  اتصال پیامک بانکی", callback_data="sms:webhook")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="👑  مرکز مدیریت", callback_data="admin:panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📘 بازکردن مستندات آنلاین", url=docs_url)],
+            [
+                InlineKeyboardButton(text="🔑 کلید API", callback_data="api"),
+                InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
+            ],
+            [InlineKeyboardButton(text="🔔 وبهوک نتیجه پرداخت", callback_data="callback:panel")],
+            [InlineKeyboardButton(text="🧪 تست اتصال Callback", callback_data="callback:test")],
+            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+        ]
+    )
+
+
+def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="✏️ ثبت یا تغییر آدرس", callback_data="callback:set")],
+    ]
+    if configured:
+        rows.append([InlineKeyboardButton(text="🧪 ارسال تست", callback_data="callback:test")])
+        rows.append([InlineKeyboardButton(text="🗑 حذف آدرس Callback", callback_data="callback:remove")])
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="🔄 ساخت Secret جدید", callback_data="callback:secret")],
+            [InlineKeyboardButton(text="📘 راهنمای اعتبارسنجی امضا", url=docs_url + "#callback")],
+            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sms_webhook_menu(docs_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📘 آموزش اتصال SMS Forwarder", url=docs_url + "#sms-webhook")],
+            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
+        ]
+    )
 
 
 def fee_menu(selected: str | None = None) -> InlineKeyboardMarkup:
@@ -69,11 +109,13 @@ def cards_menu() -> InlineKeyboardMarkup:
     )
 
 
-def api_menu() -> InlineKeyboardMarkup:
+def api_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔄 ساخت یا تعویض API Key", callback_data="api:regen")],
-            [InlineKeyboardButton(text="↩️ بازگشت به پنل", callback_data="home")],
+            [InlineKeyboardButton(text="📘 مستندات API", url=docs_url + "#api")],
+            [InlineKeyboardButton(text="🔔 تنظیم Callback", callback_data="callback:panel")],
+            [InlineKeyboardButton(text="↩️ بازگشت به اتصال", callback_data="connect")],
         ]
     )
 

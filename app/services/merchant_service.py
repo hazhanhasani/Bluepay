@@ -10,6 +10,9 @@ from app.models import Merchant, WalletLedger
 async def get_or_create_merchant(session: AsyncSession, telegram_user_id: int, name: str) -> tuple[Merchant, bool]:
     merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == telegram_user_id))
     if merchant:
+        if not merchant.callback_secret:
+            merchant.callback_secret = random_secret(32)
+            await session.flush()
         return merchant, False
 
     count = await session.scalar(select(func.count(Merchant.id))) or 0

@@ -18,12 +18,13 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, WalletLedger
 from app.services.callback_service import send_paid_callback
+from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
 from app.services.storage_service import storage
 
 router = Router(name="admin")
 PAGE_SIZE = 8
-APP_VERSION = "0.2.4"
+APP_VERSION = "0.2.6"
 
 
 def toman(value_rial: int | None) -> str:
@@ -212,7 +213,11 @@ async def admin_merchant_detail(callback: CallbackQuery):
         f"رزروشده: {toman(merchant.reserved_balance_rial)} تومان\n"
         f"قابل استفاده: {toman(merchant.available_balance_rial)} تومان\n"
         f"کارمزد هر تأیید: {toman(merchant.verification_fee_rial)} تومان\n"
-        f"مدل کارمزد: <code>{merchant.fee_mode}</code>\n\n"
+        f"مدل کارمزد: <code>{merchant.fee_mode}</code>\n"
+        f"API: <code>{html.escape(merchant.api_key_prefix or 'ساخته نشده')}</code>\n"
+        f"Callback: <code>{html.escape(short(merchant.callback_url, 42))}</code>\n\n"
+        f"وبهوک پیامک:\n<code>{html.escape(merchant_sms_webhook_url(merchant))}</code>\n\n"
+        f"مستندات اختصاصی:\n<code>{html.escape(merchant_docs_url(merchant))}</code>\n\n"
         f"کارت‌ها: {cards_count:,} • فاکتورها: {invoice_count:,} • پرداخت‌شده: {paid_count:,}"
     )
     await callback.message.edit_text(

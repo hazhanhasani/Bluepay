@@ -17,6 +17,10 @@ class ManualInvoiceState(StatesGroup):
     processing = State()
 
 
+class CallbackConfigState(StatesGroup):
+    url = State()
+
+
 class AdminWalletAdjustState(StatesGroup):
     amount = State()
 

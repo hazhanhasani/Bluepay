@@ -14,6 +14,8 @@ from sqlalchemy import func, select
 from app.bot.keyboards import (
     BANK_LABELS,
     api_menu,
+    callback_menu,
+    connection_menu,
     bank_select_menu,
     cards_menu,
     fee_menu,
@@ -23,14 +25,17 @@ from app.bot.keyboards import (
     invoice_fee_mode_menu,
     main_menu,
     payment_created_menu,
+    sms_webhook_menu,
 )
-from app.bot.states import AddCardState, ManualInvoiceState
+from app.bot.states import AddCardState, CallbackConfigState, ManualInvoiceState
 from app.core.config import settings
-from app.core.security import encrypt_text
+from app.core.security import encrypt_text, random_secret
+from app.core.urls import validate_public_https_url
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog
-from app.services.callback_service import send_paid_callback
+from app.services.callback_service import send_paid_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
+from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import (
     calculate_customer_fee,
     confirm_invoice_paid,
@@ -70,6 +75,9 @@ def fee_title(mode: str) -> str:
         "merchant": "🏪 کامل با پذیرنده",
     }.get(mode, mode)
 
+
+def validate_callback_url(value: str) -> tuple[bool, str]:
+    return validate_public_https_url(value)
 
 async def current_merchant(user_id: int) -> Merchant | None:
     async with SessionLocal() as session:
@@ -656,6 +664,37 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
 <code>{html.escape(str(exc))}</code>""",
             reply_markup=invoice_confirm_menu(),
         )
+@router.callback_query(F.data == "connect")
+async def connection_panel(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا /start را بزن", show_alert=True)
+    docs_url = merchant_docs_url(merchant)
+    callback_status = "🟢 متصل" if merchant.callback_url else "🟡 تنظیم نشده"
+    api_status = "🟢 ساخته شده" if merchant.api_key_prefix else "🟡 ساخته نشده"
+    await callback.message.edit_text(
+        f"""🔌 <b>مرکز اتصال BluePay</b>
+━━━━━━━━━━━━━━━━
+از این بخش سایت، ربات و SMS Forwarder را به درگاه وصل کن.
+
+<b>وضعیت اتصال‌ها</b>
+🔑 API پذیرنده: <b>{api_status}</b>
+📲 وبهوک پیامک اختصاصی: <b>🟢 آماده</b>
+🔔 Callback نتیجه پرداخت: <b>{callback_status}</b>
+
+<b>ترتیب پیشنهادی راه‌اندازی</b>
+1️⃣ کلید API بساز.
+2️⃣ وبهوک اختصاصی پیامک را در گوشی ثبت کن.
+3️⃣ آدرس Callback سایت یا رباتت را وارد کن.
+4️⃣ از صفحه مستندات نمونه کد را بردار و تست کن.
+━━━━━━━━━━━━━━━━
+📘 مستندات اختصاصی حساب:
+<code>{html.escape(docs_url)}</code>""",
+        reply_markup=connection_menu(docs_url),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "api")
 async def api_panel(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
@@ -664,22 +703,26 @@ async def api_panel(callback: CallbackQuery):
     prefix = merchant.api_key_prefix or "ساخته نشده"
     callback_secret = merchant.callback_secret or "ساخته نشده"
     callback_url = merchant.callback_url or "تنظیم نشده"
+    docs_url = merchant_docs_url(merchant)
     await callback.message.edit_text(
         f"""🔑 <b>API پذیرنده</b>
 ━━━━━━━━━━━━━━━━
 🪪 پیشوند کلید فعلی
 <code>{html.escape(prefix)}</code>
 
+🌐 آدرس پایه API
+<code>{settings.base_url}/api/v1</code>
+
 🔐 Secret امضای Callback
 <code>{html.escape(callback_secret)}</code>
 
-🌐 آدرس Callback پیش‌فرض
+🔔 آدرس Callback پیش‌فرض
 <code>{html.escape(callback_url)}</code>
 ━━━━━━━━━━━━━━━━
-کلید کامل API فقط یک‌بار، هنگام ساخت نمایش داده می‌شود.
-برای تنظیم Callback:
-<code>/callback https://example.com/callback</code>""",
-        reply_markup=api_menu(),
+کلید کامل API فقط یک‌بار هنگام ساخت نمایش داده می‌شود.
+هدر تمام درخواست‌ها:
+<code>X-API-Key: gw_...</code>""",
+        reply_markup=api_menu(docs_url),
     )
     await callback.answer()
 
@@ -688,12 +731,15 @@ async def api_panel(callback: CallbackQuery):
 async def api_regen(callback: CallbackQuery):
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پیدا نشد", show_alert=True)
         key = await regenerate_api_key(session, merchant)
         await session.commit()
     await callback.message.answer(
-        "⚠️ این کلید را همین حالا ذخیره کن؛ دوباره نمایش داده نمی‌شود:\n\n"
+        "⚠️ <b>کلید API جدید ساخته شد</b>\n\n"
+        "این کلید را همین حالا ذخیره کن؛ دوباره نمایش داده نمی‌شود:\n\n"
         f"<code>{key}</code>\n\n"
-        "در درخواست API هدر X-API-Key را برابر این مقدار قرار بده."
+        "در درخواست‌های سایت یا ربات، هدر <code>X-API-Key</code> را برابر این مقدار قرار بده."
     )
     await callback.answer("کلید جدید ساخته شد")
 
@@ -703,24 +749,158 @@ async def sms_info(callback: CallbackQuery):
     merchant = await current_merchant(callback.from_user.id)
     if not merchant:
         return await callback.answer("ابتدا /start را بزن", show_alert=True)
-    async with SessionLocal() as session:
-        secret = await get_setting(session, "sms_webhook_secret")
+    webhook_url = merchant_sms_webhook_url(merchant)
+    docs_url = merchant_docs_url(merchant)
     await callback.message.edit_text(
-        f"""🔗 <b>اتصال پیامک بانکی</b>
+        f"""📲 <b>وبهوک اختصاصی پیامک</b>
 ━━━━━━━━━━━━━━━━
-🌐 آدرس Webhook
-<code>{settings.base_url}/webhooks/sms</code>
+این آدرس فقط متعلق به حساب شماست و پیامک‌های ارسالی از آن فقط با کارت‌ها و فاکتورهای خودت تطبیق داده می‌شوند.
 
-🔐 هدر امنیتی
-<code>X-SMS-Secret: {html.escape(secret or '')}</code>
+🌐 <b>Webhook URL</b>
+<code>{html.escape(webhook_url)}</code>
 
-📦 نمونه بدنه JSON
-<code>{{"sender":"BANK","message":"...","device_id":"phone-1"}}</code>
+📤 روش درخواست
+<code>POST</code> با <code>Content-Type: application/json</code>
+
+📦 بدنه نمونه
+<code>{{"sender":"Bank Mellat","message":"متن کامل پیامک بانک","device_id":"phone-1"}}</code>
+
+<b>راهنمای اتصال در SMS Forwarder</b>
+1️⃣ نوع درخواست را POST انتخاب کن.
+2️⃣ آدرس بالا را بدون تغییر وارد کن.
+3️⃣ بدنه را روی JSON بگذار.
+4️⃣ sender، message و device_id را ارسال کن.
+5️⃣ یک پیامک آزمایشی بفرست و پاسخ success را بررسی کن.
 ━━━━━━━━━━━━━━━━
-این اطلاعات را در برنامه SMS Forwarder گوشی ثبت کن.""",
-        reply_markup=main_menu(merchant.is_admin),
+⚠️ این URL محرمانه است؛ آن را در اختیار شخص دیگری قرار نده.""",
+        reply_markup=sms_webhook_menu(docs_url),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "callback:panel")
+async def callback_panel(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("ابتدا /start را بزن", show_alert=True)
+    docs_url = merchant_docs_url(merchant)
+    status = "🟢 فعال" if merchant.callback_url else "🟡 تنظیم نشده"
+    await callback.message.edit_text(
+        f"""🔔 <b>وبهوک نتیجه پرداخت</b>
+━━━━━━━━━━━━━━━━
+پس از تأیید پرداخت، BluePay نتیجه را به آدرس سایت یا ربات شما ارسال می‌کند.
+
+📡 وضعیت: <b>{status}</b>
+🌐 آدرس فعلی:
+<code>{html.escape(merchant.callback_url or 'تنظیم نشده')}</code>
+
+🔐 Secret امضای اختصاصی:
+<code>{html.escape(merchant.callback_secret or 'ساخته نشده')}</code>
+
+هدرهای ارسالی:
+<code>X-Gateway-Signature</code>
+<code>X-Gateway-Event</code>
+<code>X-Gateway-Delivery</code>
+━━━━━━━━━━━━━━━━
+سایت شما باید پاسخ HTTP بین 200 تا 299 برگرداند.""",
+        reply_markup=callback_menu(docs_url, bool(merchant.callback_url)),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "callback:set")
+async def callback_set_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(CallbackConfigState.url)
+    await callback.message.edit_text(
+        """✏️ <b>ثبت آدرس Callback</b>
+━━━━━━━━━━━━━━━━
+آدرس HTTPS دریافت نتیجه پرداخت را ارسال کن.
+
+مثال:
+<code>https://example.com/api/bluepay/webhook</code>
+
+این آدرس باید از اینترنت در دسترس باشد و در کمتر از ۱۲ ثانیه پاسخ دهد.""",
+        reply_markup=flow_cancel_menu(),
+    )
+    await callback.answer()
+
+
+@router.message(CallbackConfigState.url)
+async def callback_set_value(message: Message, state: FSMContext):
+    valid, result = validate_callback_url(message.text or "")
+    if not valid:
+        return await message.answer(f"⚠️ {html.escape(result)}\nدوباره آدرس را ارسال کن:", reply_markup=flow_cancel_menu())
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        if not merchant:
+            await state.clear()
+            return await message.answer("حساب پیدا نشد؛ /start را بزن.")
+        merchant.callback_url = result
+        if not merchant.callback_secret:
+            merchant.callback_secret = random_secret(32)
+        await session.commit()
+    await state.clear()
+    await message.answer(
+        f"""✅ <b>Callback ذخیره شد</b>
+━━━━━━━━━━━━━━━━
+🌐 آدرس:
+<code>{html.escape(result)}</code>
+
+اکنون از بخش «آموزش و اتصال» دکمه تست اتصال را بزن.""",
+        reply_markup=main_menu(merchant.is_admin),
+    )
+
+
+@router.callback_query(F.data == "callback:remove")
+async def callback_remove(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پیدا نشد", show_alert=True)
+        merchant.callback_url = None
+        await session.commit()
+    await callback.answer("Callback حذف شد", show_alert=True)
+    await callback.message.edit_text(
+        "✅ آدرس Callback حذف شد. تا زمان ثبت آدرس جدید، نتیجه پرداخت فقط از طریق استعلام API قابل دریافت است.",
+        reply_markup=connection_menu(merchant_docs_url(merchant)),
+    )
+
+
+@router.callback_query(F.data == "callback:secret")
+async def callback_secret_regen(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پیدا نشد", show_alert=True)
+        merchant.callback_secret = random_secret(32)
+        await session.commit()
+        secret = merchant.callback_secret
+    await callback.message.answer(
+        "🔐 <b>Secret جدید ساخته شد</b>\n\n"
+        f"<code>{html.escape(secret)}</code>\n\n"
+        "⚠️ با تغییر Secret، لینک وبهوک اختصاصی پیامک و لینک مستندات اختصاصی نیز تغییر می‌کنند؛ آدرس جدید را دوباره از بخش اتصال بردار."
+    )
+    await callback.answer("Secret تغییر کرد")
+
+
+@router.callback_query(F.data == "callback:test")
+async def callback_test(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant or not merchant.callback_url:
+        return await callback.answer("ابتدا آدرس Callback را ثبت کن", show_alert=True)
+    await callback.answer("در حال ارسال تست…")
+    ok, result = await send_test_callback(merchant)
+    if ok:
+        await callback.message.answer(
+            "✅ <b>تست Callback موفق بود</b>\n\n"
+            f"آدرس مقصد با موفقیت پاسخ داد: <code>{html.escape(result)}</code>"
+        )
+    else:
+        await callback.message.answer(
+            "❌ <b>تست Callback ناموفق بود</b>\n\n"
+            f"نتیجه: <code>{html.escape(result)}</code>\n"
+            "لاگ سرور مقصد، SSL و پاسخ HTTP را بررسی کن."
+        )
 
 
 @router.message(Command("credit"))
@@ -747,13 +927,18 @@ async def callback_config(message: Message):
     if len(parts) != 2:
         return await message.answer("فرمت: /callback https://example.com/payment/callback یا /callback -")
     value = parts[1].strip()
-    if value != "-" and not value.startswith(("https://", "http://")):
-        return await message.answer("آدرس Callback باید با https:// یا http:// شروع شود.")
+    if value != "-":
+        valid, result = validate_callback_url(value)
+        if not valid:
+            return await message.answer(f"⚠️ {result}")
+        value = result
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
         if not merchant:
             return await message.answer("ابتدا /start را بزن.")
         merchant.callback_url = None if value == "-" else value
+        if not merchant.callback_secret:
+            merchant.callback_secret = random_secret(32)
         await session.commit()
     await message.answer("✅ آدرس Callback ذخیره شد." if value != "-" else "✅ Callback پیش‌فرض حذف شد.")
 

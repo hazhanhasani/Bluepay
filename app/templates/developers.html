@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>مستندات اتصال BluePay</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="docs-body">
+  <header class="docs-topbar">
+    <div class="docs-wrap topbar-inner">
+      <div>
+        <span class="badge">BluePay Developers</span>
+        <h1>مستندات اتصال سایت و ربات</h1>
+        <p>ساخت فاکتور، استعلام وضعیت، لغو فاکتور، دریافت Callback و اتصال پیامک بانکی</p>
+      </div>
+      <a class="ghost-link" href="/">وضعیت سرویس</a>
+    </div>
+  </header>
+
+  <main class="docs-wrap docs-layout">
+    <aside class="docs-nav card">
+      <strong>فهرست راهنما</strong>
+      <a href="#quickstart">شروع سریع</a>
+      <a href="#credentials">اطلاعات اتصال</a>
+      <a href="#api">API فاکتور</a>
+      <a href="#bot-example">اتصال ربات تلگرام</a>
+      <a href="#callback">Callback پرداخت</a>
+      <a href="#sms-webhook">وبهوک پیامک</a>
+      <a href="#errors">خطاها و وضعیت‌ها</a>
+    </aside>
+
+    <div class="docs-content">
+      {% if merchant %}
+      <section class="card account-card" id="credentials">
+        <div class="section-title">
+          <div class="icon-box">👤</div>
+          <div><h2>اطلاعات اختصاصی پذیرنده</h2><p>{{ merchant.name }}</p></div>
+        </div>
+        <div class="credential-grid">
+          <div><span>شناسه پذیرنده</span><code>{{ merchant.id }}</code></div>
+          <div><span>پیشوند API Key</span><code>{{ api_prefix }}</code></div>
+          <div class="wide"><span>آدرس پایه API</span><code>{{ base_url }}/api/v1</code><button onclick="copyCode(this)">کپی</button></div>
+          <div class="wide"><span>وبهوک اختصاصی پیامک</span><code>{{ sms_webhook_url }}</code><button onclick="copyCode(this)">کپی</button></div>
+          <div class="wide"><span>Callback ثبت‌شده</span><code>{{ callback_url }}</code></div>
+        </div>
+        <div class="notice warning">کلید کامل API و Secret امضا فقط داخل ربات نمایش داده می‌شوند. این صفحه آن‌ها را افشا نمی‌کند.</div>
+      </section>
+      {% endif %}
+
+      <section class="card" id="quickstart">
+        <div class="section-title"><div class="icon-box">🚀</div><div><h2>شروع سریع در ۴ مرحله</h2><p>مسیر پیشنهادی برای راه‌اندازی بدون سردرگمی</p></div></div>
+        <div class="steps-grid">
+          <div class="step-card"><b>۱</b><h3>API Key بساز</h3><p>در ربات وارد «آموزش و اتصال ← کلید API» شو و کلید را یک‌بار ذخیره کن.</p></div>
+          <div class="step-card"><b>۲</b><h3>Callback ثبت کن</h3><p>آدرس HTTPS سایت یا ربات را ثبت کن تا نتیجه پرداخت خودکار ارسال شود.</p></div>
+          <div class="step-card"><b>۳</b><h3>فاکتور بساز</h3><p>با API یک فاکتور بساز و لینک payment_url را برای مشتری ارسال کن.</p></div>
+          <div class="step-card"><b>۴</b><h3>پیامک را وصل کن</h3><p>Webhook اختصاصی را داخل SMS Forwarder گوشی ثبت کن تا پرداخت تأیید شود.</p></div>
+        </div>
+      </section>
+
+      <section class="card" id="api">
+        <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
+        <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
+        <div class="notice">کلید API را در فرانت‌اند، HTML یا اپلیکیشن مشتری قرار نده. درخواست ساخت فاکتور باید از Backend سایت یا ربات شما ارسال شود.</div>
+
+        <h3>ساخت فاکتور</h3>
+        <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices</code></div>
+        <pre><code>curl -X POST "{{ base_url }}/api/v1/invoices" \
+  -H "X-API-Key: gw_your_private_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount_toman": 200000,
+    "order_id": "ORDER-1001",
+    "description": "اشتراک یک ماهه",
+    "fee_mode": "split",
+    "ttl_minutes": 30
+  }'</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h4>پاسخ موفق</h4>
+        <pre><code>{
+  "success": true,
+  "payment_id": "PAYMENT_TOKEN",
+  "order_id": "ORDER-1001",
+  "status": "pending",
+  "payable_amount_rial": 2010000,
+  "payment_url": "{{ base_url }}/pay/PAYMENT_TOKEN",
+  "expires_at": "2026-07-31T18:30:00+00:00"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>استعلام وضعیت</h3>
+        <div class="endpoint"><span class="method get">GET</span><code>{{ base_url }}/api/v1/invoices/{payment_id}</code></div>
+
+        <h3>لغو فاکتور در انتظار</h3>
+        <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices/{payment_id}/cancel</code></div>
+
+        <h3>نمونه Python برای سایت</h3>
+        <pre><code>import httpx
+
+API_KEY = "gw_your_private_key"
+BASE_URL = "{{ base_url }}"
+
+payload = {
+    "amount_toman": 200000,
+    "order_id": "ORDER-1001",
+    "description": "اشتراک یک ماهه",
+    "fee_mode": "split",
+}
+
+response = httpx.post(
+    f"{BASE_URL}/api/v1/invoices",
+    headers={"X-API-Key": API_KEY},
+    json=payload,
+    timeout=15,
+)
+response.raise_for_status()
+invoice = response.json()
+print(invoice["payment_url"])</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>نمونه PHP برای سایت</h3>
+        <pre><code>&lt;?php
+$apiKey = 'gw_your_private_key';
+$url = '{{ base_url }}/api/v1/invoices';
+$data = [
+  'amount_toman' =&gt; 200000,
+  'order_id' =&gt; 'ORDER-1001',
+  'description' =&gt; 'اشتراک یک ماهه',
+  'fee_mode' =&gt; 'split'
+];
+
+$ch = curl_init($url);
+curl_setopt_array($ch, [
+  CURLOPT_POST =&gt; true,
+  CURLOPT_RETURNTRANSFER =&gt; true,
+  CURLOPT_HTTPHEADER =&gt; [
+    'X-API-Key: ' . $apiKey,
+    'Content-Type: application/json'
+  ],
+  CURLOPT_POSTFIELDS =&gt; json_encode($data)
+]);
+$result = curl_exec($ch);
+$invoice = json_decode($result, true);
+echo $invoice['payment_url'];</code><button onclick="copyPre(this)">کپی</button></pre>
+      </section>
+
+      <section class="card" id="bot-example">
+        <div class="section-title"><div class="icon-box">🤖</div><div><h2>اتصال ربات تلگرام</h2><p>نمونه ساده با aiogram و httpx</p></div></div>
+        <pre><code>from aiogram import Router
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+import httpx
+
+router = Router()
+API_KEY = "gw_your_private_key"
+BASE_URL = "{{ base_url }}"
+
+@router.message(lambda message: message.text == "خرید")
+async def buy(message: Message):
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            f"{BASE_URL}/api/v1/invoices",
+            headers={"X-API-Key": API_KEY},
+            json={
+                "amount_toman": 200000,
+                "order_id": f"TG-{message.from_user.id}-{message.message_id}",
+                "description": "خرید از ربات"
+            },
+        )
+    response.raise_for_status()
+    invoice = response.json()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="پرداخت", url=invoice["payment_url"])
+    ]])
+    await message.answer("برای پرداخت روی دکمه بزن:", reply_markup=keyboard)</code><button onclick="copyPre(this)">کپی</button></pre>
+      </section>
+
+      <section class="card" id="callback">
+        <div class="section-title"><div class="icon-box">🔔</div><div><h2>Callback نتیجه پرداخت</h2><p>وبهوک خروجی اختصاصی هر پذیرنده</p></div></div>
+        <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. در صورت خطا، ارسال تا سه مرتبه تکرار می‌شود.</p>
+        <div class="chips"><span>X-Gateway-Signature</span><span>X-Gateway-Event</span><span>X-Gateway-Delivery</span><span>X-Gateway-Timestamp</span></div>
+        <pre><code>{
+  "event": "invoice.paid",
+  "payment_id": "PAYMENT_TOKEN",
+  "order_id": "ORDER-1001",
+  "status": "paid",
+  "payable_amount_rial": 2010000,
+  "reference_number": "998877",
+  "paid_at": "2026-07-31T18:12:10+00:00"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>اعتبارسنجی امضا در Python</h3>
+        <pre><code>import hashlib, hmac, json
+
+def verify_webhook(raw_body: bytes, received_signature: str, secret: str) -&gt; bool:
+    payload = json.loads(raw_body)
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    expected = hmac.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, received_signature)</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>اعتبارسنجی امضا در PHP</h3>
+        <pre><code>&lt;?php
+$secret = 'SECRET_FROM_BOT';
+$raw = file_get_contents('php://input');
+$payload = json_decode($raw, true);
+ksort($payload);
+$canonical = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$expected = hash_hmac('sha256', $canonical, $secret);
+$received = $_SERVER['HTTP_X_GATEWAY_SIGNATURE'] ?? '';
+if (!hash_equals($expected, $received)) {
+    http_response_code(401);
+    exit('invalid signature');
+}
+http_response_code(200);
+echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="notice warning">برای جلوگیری از پردازش تکراری، مقدار X-Gateway-Delivery یا payment_id را در دیتابیس خود ذخیره و یکتا کن.</div>
+      </section>
+
+      <section class="card" id="sms-webhook">
+        <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
+        <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
+        <pre><code>{
+  "sender": "Bank Mellat",
+  "message": "متن کامل پیامک واریز بانک",
+  "device_id": "phone-1"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="steps-list">
+          <div><b>۱</b><span>در برنامه SMS Forwarder یک Rule برای پیامک بانک بساز.</span></div>
+          <div><b>۲</b><span>Method را POST و Content-Type را application/json انتخاب کن.</span></div>
+          <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
+          <div><b>۴</b><span>متن کامل پیامک را در message و نام فرستنده را در sender بفرست.</span></div>
+          <div><b>۵</b><span>device_id را مطابق شناسه‌ای بفرست که هنگام ثبت کارت وارد کرده‌ای.</span></div>
+        </div>
+        <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکن.</div>
+      </section>
+
+      <section class="card" id="errors">
+        <div class="section-title"><div class="icon-box">🧭</div><div><h2>وضعیت‌ها و خطاهای رایج</h2><p>برای مدیریت صحیح سمت پذیرنده</p></div></div>
+        <div class="status-table">
+          <div><code>pending</code><span>در انتظار واریز و تأیید پیامک</span></div>
+          <div><code>paid</code><span>پرداخت قطعی و Callback ارسال‌شده</span></div>
+          <div><code>expired</code><span>زمان فاکتور تمام شده است</span></div>
+          <div><code>cancelled</code><span>پذیرنده فاکتور را لغو کرده است</span></div>
+          <div><code>401</code><span>API Key یا Webhook token نامعتبر است</span></div>
+          <div><code>409</code><span>order_id تکراری یا وضعیت نامناسب فاکتور</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    function copied(button){
+      const old = button.textContent;
+      button.textContent = '✅ کپی شد';
+      setTimeout(() => button.textContent = old, 1400);
+    }
+    function copyPre(button){
+      const code = button.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code).then(() => copied(button));
+    }
+    function copyCode(button){
+      const code = button.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code).then(() => copied(button));
+    }
+  </script>
+</body>
+</html>

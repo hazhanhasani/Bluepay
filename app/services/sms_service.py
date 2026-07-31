@@ -13,8 +13,8 @@ from app.parsers import parse_bank_sms
 from app.services.invoice_service import confirm_invoice_paid
 
 
-def sms_fingerprint(sender: str, message: str, device_id: str | None) -> str:
-    raw = f"{sender}\n{device_id or ''}\n{message.strip()}"
+def sms_fingerprint(sender: str, message: str, device_id: str | None, merchant_id: int | None = None) -> str:
+    raw = f"{merchant_id or 0}\n{sender}\n{device_id or ''}\n{message.strip()}"
     return sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -23,8 +23,9 @@ async def ingest_sms(
     sender: str,
     message: str,
     device_id: str | None,
+    merchant_id: int | None = None,
 ) -> tuple[SmsTransaction, Invoice | None, str]:
-    fingerprint = sms_fingerprint(sender, message, device_id)
+    fingerprint = sms_fingerprint(sender, message, device_id, merchant_id)
     existing = await session.scalar(select(SmsTransaction).where(SmsTransaction.fingerprint == fingerprint))
     if existing:
         return existing, None, "duplicate"
@@ -64,6 +65,7 @@ async def ingest_sms(
                     Invoice.status == "pending",
                     Invoice.payable_amount_rial == parsed.amount_rial,
                     Invoice.expires_at >= now,
+                    *([Invoice.merchant_id == merchant_id] if merchant_id is not None else []),
                 )
                 .options(joinedload(Invoice.card), joinedload(Invoice.merchant))
             )
