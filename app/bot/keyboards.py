@@ -275,6 +275,7 @@ def admin_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="💼 گردش کیف پول", callback_data="admin:ledger"),
                 InlineKeyboardButton(text="🖥 سلامت سامانه", callback_data="admin:system"),
             ],
+            [InlineKeyboardButton(text="⚙️ پیش‌فرض‌های کارمزد", callback_data="admin:fee-defaults")],
             [InlineKeyboardButton(text="📦 مدیریت انتشار نسخه", callback_data="admin:update")],
             [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی پذیرنده", callback_data="home")],
         ]

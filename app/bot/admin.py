@@ -9,7 +9,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import joinedload
 
 from app.bot.keyboards import admin_menu, main_menu
@@ -33,6 +33,7 @@ from app.models import BankCard, Invoice, Merchant, SmsTransaction, UpdateLog, W
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
+from app.services.settings_service import get_fee_defaults, set_fee_defaults
 from app.services.storage_service import storage
 from app.version import APP_VERSION
 
@@ -79,7 +80,10 @@ def merchant_detail_keyboard(merchant: Merchant, page: int, self_id: int) -> Inl
             InlineKeyboardButton(text="➖ کسر از کیف پول", callback_data=f"admin:mdebit:{merchant.id}:{page}"),
         ],
         [InlineKeyboardButton(text="⚙️ تغییر مبلغ کارمزد", callback_data=f"admin:mfee:{merchant.id}:{page}")],
-        [InlineKeyboardButton(text="🎁 کارمزد رایگان", callback_data=f"admin:mfeefree:{merchant.id}:{page}")],
+        [
+            InlineKeyboardButton(text="🎁 کارمزد رایگان", callback_data=f"admin:mfeefree:{merchant.id}:{page}"),
+            InlineKeyboardButton(text="🌐 استفاده از پیش‌فرض", callback_data=f"admin:mfeedefault:{merchant.id}:{page}"),
+        ],
     ]
     if merchant.telegram_user_id != self_id:
         label = "✅ فعال‌کردن حساب" if not merchant.is_active else "⛔ غیرفعال‌کردن حساب"
@@ -91,6 +95,36 @@ def merchant_detail_keyboard(merchant: Merchant, page: int, self_id: int) -> Inl
             [InlineKeyboardButton(text="👑 منوی مدیریت", callback_data="admin:panel")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def global_fee_defaults_keyboard(default_fee_rial: int, default_mode: str, *, confirm_apply: bool = False) -> InlineKeyboardMarkup:
+    if confirm_apply:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✅ تأیید و اعمال به همه", callback_data="admin:gfee:apply:confirm")],
+                [InlineKeyboardButton(text="انصراف", callback_data="admin:fee-defaults")],
+            ]
+        )
+
+    def mode_label(mode: str, title: str) -> str:
+        return f"✓ {title}" if default_mode == mode else title
+
+    rows = [
+        [InlineKeyboardButton(text="✏️ تغییر مبلغ پیش‌فرض", callback_data="admin:gfee:amount")],
+        [
+            InlineKeyboardButton(text="🎁 پیش‌فرض رایگان", callback_data="admin:gfee:free"),
+            InlineKeyboardButton(
+                text=f"مبلغ فعلی: {'رایگان' if default_fee_rial == 0 else toman(default_fee_rial) + ' تومان'}",
+                callback_data="noop",
+            ),
+        ],
+        [InlineKeyboardButton(text=mode_label("customer", "👤 پرداخت توسط مشتری"), callback_data="admin:gfee:mode:customer")],
+        [InlineKeyboardButton(text=mode_label("split", "🤝 تقسیم مساوی"), callback_data="admin:gfee:mode:split")],
+        [InlineKeyboardButton(text=mode_label("merchant", "🏪 پرداخت توسط پذیرنده"), callback_data="admin:gfee:mode:merchant")],
+        [InlineKeyboardButton(text="🌐 اعمال این پیش‌فرض‌ها به همه پذیرندگان", callback_data="admin:gfee:apply")],
+        [InlineKeyboardButton(text="↩️ مرکز مدیریت", callback_data="admin:panel")],
+    ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -130,7 +164,7 @@ async def admin_panel(callback: CallbackQuery):
             "مرکز مدیریت بلوپی",
             [
                 "• پایش وضعیت کسب‌وکار و تراکنش‌ها",
-                "• مدیریت پذیرندگان و اعتبار کیف پول",
+                "• مدیریت پذیرندگان، کیف پول و پیش‌فرض‌های کارمزد",
                 "• بررسی پیامک‌های بانکی و تطبیق دستی",
                 "• کنترل نسخه، پشتیبان‌گیری و سلامت سرویس",
             ],
@@ -140,6 +174,140 @@ async def admin_panel(callback: CallbackQuery):
         reply_markup=admin_menu(),
     )
     await callback.answer()
+
+async def render_global_fee_defaults(callback: CallbackQuery, *, notice: str | None = None) -> None:
+    async with SessionLocal() as session:
+        default_fee_rial, default_mode = await get_fee_defaults(session)
+        total_merchants = await session.scalar(select(func.count(Merchant.id))) or 0
+        matching_merchants = await session.scalar(
+            select(func.count(Merchant.id)).where(
+                Merchant.verification_fee_rial == default_fee_rial,
+                Merchant.fee_mode == default_mode,
+            )
+        ) or 0
+
+    lines = [
+        f"💰 مبلغ پیش‌فرض هر تأیید: <b>{'رایگان' if default_fee_rial == 0 else money_toman(default_fee_rial)}</b>",
+        f"⚙️ روش پیش‌فرض پرداخت هزینه: <b>{esc(fee_mode_label(default_mode))}</b>",
+        "",
+        f"👥 پذیرندگان مطابق پیش‌فرض: <b>{matching_merchants:,} از {total_merchants:,}</b>",
+        "پذیرنده‌های جدید به‌صورت خودکار با این تنظیمات ساخته می‌شوند.",
+        "تغییر پیش‌فرض، تنظیم اختصاصی پذیرندگان فعلی را تغییر نمی‌دهد؛ مگر گزینه اعمال همگانی را انتخاب کنید.",
+    ]
+    if notice:
+        lines.insert(0, f"✅ {esc(notice)}")
+        lines.insert(1, "")
+    await callback.message.edit_text(
+        panel(
+            "⚙️",
+            "پیش‌فرض‌های کارمزد",
+            lines,
+            subtitle="مدیریت سیاست عمومی صدور فاکتور",
+            footer="مبلغ صفر به‌معنای سرویس رایگان و بدون نیاز به اعتبار کیف پول است.",
+        ),
+        reply_markup=global_fee_defaults_keyboard(default_fee_rial, default_mode),
+    )
+
+
+@router.callback_query(F.data == "admin:fee-defaults")
+async def admin_fee_defaults(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    await render_global_fee_defaults(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:gfee:amount")
+async def admin_global_fee_amount_start(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    await state.set_state(AdminFeeState.amount)
+    await state.update_data(scope="global")
+    await callback.message.answer(
+        panel(
+            "✏️",
+            "تغییر مبلغ پیش‌فرض",
+            [
+                "مبلغ کارمزد هر تأیید را به تومان و فقط به‌صورت عدد وارد کنید.",
+                "برای رایگان‌کردن سرویس، عدد <code>0</code> را ارسال کنید.",
+            ],
+            subtitle="این مبلغ برای پذیرنده‌های جدید استفاده می‌شود",
+        )
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:gfee:free")
+async def admin_global_fee_free(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        await set_fee_defaults(session, verification_fee_rial=0)
+        await session.commit()
+    await render_global_fee_defaults(callback, notice="کارمزد پیش‌فرض روی حالت رایگان قرار گرفت.")
+    await callback.answer("پیش‌فرض رایگان شد.")
+
+
+@router.callback_query(F.data.startswith("admin:gfee:mode:"))
+async def admin_global_fee_mode(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    mode = callback.data.rsplit(":", 1)[1]
+    if mode not in {"customer", "split", "merchant"}:
+        return await callback.answer("روش کارمزد معتبر نیست.", show_alert=True)
+    async with SessionLocal() as session:
+        await set_fee_defaults(session, fee_mode=mode)
+        await session.commit()
+    await render_global_fee_defaults(callback, notice="روش پیش‌فرض پرداخت کارمزد به‌روزرسانی شد.")
+    await callback.answer("پیش‌فرض ذخیره شد.")
+
+
+@router.callback_query(F.data == "admin:gfee:apply")
+async def admin_global_fee_apply_confirm(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        default_fee_rial, default_mode = await get_fee_defaults(session)
+        total_merchants = await session.scalar(select(func.count(Merchant.id))) or 0
+    await callback.message.edit_text(
+        warning(
+            "تأیید اعمال همگانی",
+            "\n".join(
+                [
+                    f"این عملیات تنظیمات کارمزد <b>{total_merchants:,}</b> پذیرنده را بازنویسی می‌کند.",
+                    f"مبلغ جدید: <b>{'رایگان' if default_fee_rial == 0 else money_toman(default_fee_rial)}</b>",
+                    f"روش جدید: <b>{esc(fee_mode_label(default_mode))}</b>",
+                    "تنظیمات اختصاصی فعلی پذیرندگان نیز جایگزین خواهد شد.",
+                ]
+            ),
+            footer="این عملیات فقط روی فاکتورهای جدید اثر می‌گذارد و فاکتورهای قبلی تغییر نمی‌کنند.",
+        ),
+        reply_markup=global_fee_defaults_keyboard(default_fee_rial, default_mode, confirm_apply=True),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:gfee:apply:confirm")
+async def admin_global_fee_apply(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        default_fee_rial, default_mode = await get_fee_defaults(session)
+        total_merchants = await session.scalar(select(func.count(Merchant.id))) or 0
+        await session.execute(
+            update(Merchant).values(
+                verification_fee_rial=default_fee_rial,
+                fee_mode=default_mode,
+            )
+        )
+        await session.commit()
+        storage.mark_dirty()
+    await render_global_fee_defaults(
+        callback,
+        notice=f"پیش‌فرض‌های کارمزد برای {total_merchants:,} پذیرنده اعمال شد.",
+    )
+    await callback.answer("تنظیمات همگانی اعمال شد.")
+
 
 @router.callback_query(F.data == "admin:dashboard")
 async def admin_dashboard(callback: CallbackQuery):
@@ -257,6 +425,12 @@ async def admin_merchant_detail(callback: CallbackQuery):
         paid_count = await session.scalar(
             select(func.count(Invoice.id)).where(Invoice.merchant_id == merchant.id, Invoice.status == "paid")
         ) or 0
+        default_fee_rial, default_fee_mode = await get_fee_defaults(session)
+    fee_source = (
+        "همگانی (مطابق پیش‌فرض)"
+        if merchant.verification_fee_rial == default_fee_rial and merchant.fee_mode == default_fee_mode
+        else "اختصاصی این پذیرنده"
+    )
     text = panel(
         "👤",
         "پرونده پذیرنده",
@@ -273,6 +447,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
             f"✅ قابل استفاده: <b>{money_toman(merchant.available_balance_rial)}</b>",
             f"🧾 هزینه هر تأیید: <b>{'رایگان' if merchant.verification_fee_rial == 0 else money_toman(merchant.verification_fee_rial)}</b>",
             f"⚙️ مدل کارمزد: <b>{esc(fee_mode_label(merchant.fee_mode))}</b>",
+            f"🌐 منبع تنظیم: <b>{fee_source}</b>",
             "",
             "<b>وضعیت اتصال</b>",
             f"🔑 API: <code>{esc(merchant.api_key_prefix or 'ایجاد نشده')}</code>",
@@ -378,6 +553,29 @@ async def admin_wallet_adjust_amount(message: Message, state: FSMContext):
     )
 
 
+@router.callback_query(F.data.startswith("admin:mfeedefault:"))
+async def admin_fee_use_default(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    _, _, merchant_id, page = callback.data.split(":")
+    async with SessionLocal() as session:
+        merchant = await session.get(Merchant, int(merchant_id))
+        if not merchant:
+            return await callback.answer("پذیرنده یافت نشد.", show_alert=True)
+        default_fee_rial, default_fee_mode = await get_fee_defaults(session)
+        merchant.verification_fee_rial = default_fee_rial
+        merchant.fee_mode = default_fee_mode
+        await session.commit()
+    await callback.message.edit_text(
+        success(
+            "پیش‌فرض همگانی اعمال شد",
+            "مبلغ و روش کارمزد این پذیرنده با تنظیمات عمومی سامانه هماهنگ شد.",
+        ),
+        reply_markup=merchant_detail_keyboard(merchant, int(page), callback.from_user.id),
+    )
+    await callback.answer("تنظیمات پیش‌فرض اعمال شد.")
+
+
 @router.callback_query(F.data.startswith("admin:mfeefree:"))
 async def admin_fee_free(callback: CallbackQuery):
     if not await require_admin_callback(callback):
@@ -405,7 +603,7 @@ async def admin_fee_start(callback: CallbackQuery, state: FSMContext):
         return
     _, _, merchant_id, page = callback.data.split(":")
     await state.set_state(AdminFeeState.amount)
-    await state.update_data(merchant_id=int(merchant_id), page=int(page))
+    await state.update_data(scope="merchant", merchant_id=int(merchant_id), page=int(page))
     await callback.message.answer(
         "مبلغ کارمزد هر تأیید را به تومان وارد کنید. برای غیرفعال‌کردن کارمزد و ارائه سرویس رایگان، عدد <code>0</code> را ارسال کنید:"
     )
@@ -420,16 +618,39 @@ async def admin_fee_amount(message: Message, state: FSMContext):
     raw = "".join(ch for ch in (message.text or "") if ch.isdigit())
     if not raw:
         return await message.answer("مبلغ کارمزد باید عددی باشد؛ عدد صفر یعنی کارمزد رایگان.")
+
+    amount_toman = int(raw)
+    amount_rial = amount_toman * 10
     data = await state.get_data()
+    scope = data.get("scope", "merchant")
+
+    if scope == "global":
+        async with SessionLocal() as session:
+            default_fee_rial, default_mode = await set_fee_defaults(
+                session,
+                verification_fee_rial=amount_rial,
+            )
+            await session.commit()
+        await state.clear()
+        fee_label = "رایگان (غیرفعال)" if amount_toman == 0 else f"{amount_toman:,} تومان"
+        await message.answer(
+            success(
+                "مبلغ پیش‌فرض ذخیره شد",
+                f"مبلغ کارمزد پیش‌فرض روی <b>{fee_label}</b> تنظیم شد. این مقدار برای پذیرنده‌های جدید استفاده می‌شود.",
+            ),
+            reply_markup=global_fee_defaults_keyboard(default_fee_rial, default_mode),
+        )
+        return
+
     async with SessionLocal() as session:
         merchant = await session.get(Merchant, data["merchant_id"])
         if not merchant:
             await state.clear()
             return await message.answer("پذیرنده پیدا نشد.")
-        merchant.verification_fee_rial = int(raw) * 10
+        merchant.verification_fee_rial = amount_rial
         await session.commit()
     await state.clear()
-    fee_label = "رایگان (غیرفعال)" if int(raw) == 0 else f"{int(raw):,} تومان"
+    fee_label = "رایگان (غیرفعال)" if amount_toman == 0 else f"{amount_toman:,} تومان"
     await message.answer(
         f"✅ کارمزد روی <b>{fee_label}</b> تنظیم شد.",
         reply_markup=InlineKeyboardMarkup(

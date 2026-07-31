@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import api_key, random_secret, sha256_text
 from app.models import Merchant, WalletLedger
+from app.services.settings_service import get_fee_defaults
 
 
 async def get_or_create_merchant(session: AsyncSession, telegram_user_id: int, name: str) -> tuple[Merchant, bool]:
@@ -16,11 +17,14 @@ async def get_or_create_merchant(session: AsyncSession, telegram_user_id: int, n
         return merchant, False
 
     count = await session.scalar(select(func.count(Merchant.id))) or 0
+    default_fee_rial, default_fee_mode = await get_fee_defaults(session)
     merchant = Merchant(
         telegram_user_id=telegram_user_id,
         name=name[:120] or "پذیرنده",
         is_admin=(count == 0),
         callback_secret=random_secret(32),
+        verification_fee_rial=default_fee_rial,
+        fee_mode=default_fee_mode,
     )
     session.add(merchant)
     await session.flush()
