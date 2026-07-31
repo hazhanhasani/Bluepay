@@ -1,7 +1,7 @@
 {
   "name": "Direct Payment Gateway Bot",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "min_version": "0.1.0",
-  "description": "پشتیبانی جامع بانک‌ها و برندهای بانکی ایران، فهرست 34 کد بانکی، تشخیص نام‌های فارسی/انگلیسی و قدیمی، bank_code اختیاری در وبهوک، فهرست صفحه‌بندی‌شده بانک‌ها و مستندات کامل پوشش بانکی",
+  "description": "بدنه واقعی SMS Forwarder بدون بانک ثابت، قالب آماده با Incoming Number و Message Body، تشخیص خودکار بانک و پذیرش JSON/text/form با نام‌های فیلد متداول",
   "run_migrations": true
 }

@@ -24,7 +24,7 @@ from app.services.storage_service import storage
 
 router = Router(name="admin")
 PAGE_SIZE = 8
-APP_VERSION = "0.2.7"
+APP_VERSION = "0.2.8"
 
 
 def toman(value_rial: int | None) -> str:

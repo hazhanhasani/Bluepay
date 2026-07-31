@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hmac
+import json
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
@@ -11,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import api_merchant
-from app.api.schemas import CreateInvoiceRequest, SmsWebhookRequest
+from app.api.schemas import CreateInvoiceRequest
 from app.core.config import settings
 from app.core.security import decrypt_text
 from app.core.urls import validate_public_https_url
@@ -38,6 +40,120 @@ def rial_to_toman(value: int) -> int:
     return value // 10
 
 
+def _first_payload_value(data: dict, *keys: str):
+    for key in keys:
+        value = data.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _parse_text_sms_payload(raw: str) -> dict:
+    text = raw.strip()
+    if not text:
+        return {}
+
+    # JSON sent as text/plain is accepted too.
+    try:
+        value = json.loads(text)
+        if isinstance(value, dict):
+            return value
+    except Exception:
+        pass
+
+    # Recommended Zerogic SMS Forwarder template:
+    # DEVICE:phone-1
+    # SENDER:{Incoming Number}
+    # MESSAGE:
+    # {Message Body}
+    marker = re.match(
+        r"(?is)^\s*DEVICE\s*:\s*(?P<device>[^\r\n]*)[\r\n]+"
+        r"\s*SENDER\s*:\s*(?P<sender>[^\r\n]*)[\r\n]+"
+        r"\s*MESSAGE\s*:\s*[\r\n]*(?P<message>.*)$",
+        text,
+    )
+    if marker:
+        return {
+            "device_id": marker.group("device").strip(),
+            "sender": marker.group("sender").strip(),
+            "message": marker.group("message").strip(),
+        }
+
+    # Also accept From:/Sender: followed by the original message body.
+    simple = re.match(
+        r"(?is)^\s*(?:FROM|SENDER|فرستنده)\s*:\s*(?P<sender>[^\r\n]*)[\r\n]+(?P<message>.*)$",
+        text,
+    )
+    if simple:
+        return {
+            "sender": simple.group("sender").strip(),
+            "message": simple.group("message").strip(),
+        }
+
+    return {"message": text}
+
+
+async def _read_sms_webhook_payload(request: Request) -> tuple[str, str, str | None, str | None]:
+    content_type = (request.headers.get("content-type") or "").lower()
+    data: dict = {}
+
+    raw_body = await request.body()
+    raw_text = raw_body.decode("utf-8", errors="replace")
+    try:
+        if "application/json" in content_type:
+            try:
+                value = json.loads(raw_text)
+                if isinstance(value, dict):
+                    data = value
+            except Exception:
+                # Some apps label a custom text template as application/json.
+                data = _parse_text_sms_payload(raw_text)
+        elif "application/x-www-form-urlencoded" in content_type:
+            from urllib.parse import parse_qs
+
+            parsed = parse_qs(raw_text, keep_blank_values=True)
+            data = {key: values[-1] if values else "" for key, values in parsed.items()}
+        else:
+            data = _parse_text_sms_payload(raw_text)
+    except Exception:
+        data = _parse_text_sms_payload(raw_text)
+
+    # Some forwarders wrap the actual values in data/payload/messageData.
+    for wrapper in ("data", "payload", "messageData", "sms"):
+        nested = data.get(wrapper)
+        if isinstance(nested, dict):
+            data = {**data, **nested}
+
+    # Query parameters can fill missing fields.
+    for key, value in request.query_params.items():
+        data.setdefault(key, value)
+
+    sender = _first_payload_value(
+        data, "sender", "from", "source", "address", "incoming_number", "incomingNumber",
+        "phoneNumber", "originator", "originalSender",
+    )
+    message = _first_payload_value(
+        data, "message", "body", "text", "msg", "content", "message_body", "messageBody",
+        "originalBody", "transformedBody",
+    )
+    device_id = _first_payload_value(
+        data, "device_id", "deviceId", "device", "phone_id", "phoneId", "sim", "sim_id",
+        "subscriptionId", "deviceModel",
+    )
+    bank_code = _first_payload_value(data, "bank_code", "bankCode", "bank")
+
+    if not sender or len(sender) > 120:
+        raise HTTPException(status_code=422, detail="sender/شماره فرستنده در درخواست موجود نیست")
+    if not message or len(message) < 3 or len(message) > 4000:
+        raise HTTPException(status_code=422, detail="message/متن پیامک در درخواست موجود نیست یا طول آن نامعتبر است")
+    if device_id and len(device_id) > 120:
+        raise HTTPException(status_code=422, detail="device_id بیش از حد طولانی است")
+    if bank_code and len(bank_code) > 60:
+        raise HTTPException(status_code=422, detail="bank_code بیش از حد طولانی است")
+
+    return sender, message, device_id, bank_code
+
+
 def invoice_payload(invoice: Invoice) -> dict:
     return {
         "payment_id": invoice.token,
@@ -61,7 +177,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.7",
+        "version": "0.2.8",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }
@@ -262,7 +378,7 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
 async def merchant_sms_webhook(
     merchant_id: int,
     token: str,
-    body: SmsWebhookRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
@@ -272,13 +388,14 @@ async def merchant_sms_webhook(
     if not hmac.compare_digest(token, merchant_sms_token(merchant)):
         raise HTTPException(status_code=401, detail="Webhook token نامعتبر است")
 
+    sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
     sms, invoice, result = await ingest_sms(
         session,
-        body.sender,
-        body.message,
-        body.device_id,
+        sender,
+        message,
+        device_id,
         merchant_id=merchant.id,
-        bank_hint=body.bank_code,
+        bank_hint=bank_code,
     )
     await session.commit()
     if invoice:
@@ -293,7 +410,7 @@ async def merchant_sms_webhook(
 
 @router.post("/webhooks/sms", deprecated=True)
 async def legacy_sms_webhook(
-    body: SmsWebhookRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     x_sms_secret: str = Header(default="", alias="X-SMS-Secret"),
     session: AsyncSession = Depends(get_session),
@@ -306,7 +423,8 @@ async def legacy_sms_webhook(
     if not expected or not hmac.compare_digest(x_sms_secret, expected):
         raise HTTPException(status_code=401, detail="Webhook secret نامعتبر است")
 
-    sms, invoice, result = await ingest_sms(session, body.sender, body.message, body.device_id, bank_hint=body.bank_code)
+    sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
+    sms, invoice, result = await ingest_sms(session, sender, message, device_id, bank_hint=bank_code)
     await session.commit()
     if invoice:
         background_tasks.add_task(send_paid_callback, invoice)

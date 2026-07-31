@@ -222,27 +222,36 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       <section class="card" id="sms-webhook">
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
-        <pre><code>{
-  "sender": "Bank Mellat",
-  "message": "متن کامل پیامک واریز بانک",
-  "device_id": "phone-1",
-  "bank_code": "mellat"
-}</code><button onclick="copyPre(this)">کپی</button></pre>
+        <h3>قالب واقعی قابل درج در SMS Forwarder</h3>
+        <pre><code>DEVICE:phone-1
+SENDER:{Incoming Number}
+MESSAGE:
+{Message Body}</code><button onclick="copyPre(this)">کپی قالب</button></pre>
+        <div class="notice">این قالب را در قسمت Message Template برنامه <b>SMS Forwarder</b> قرار بده. مقدار <code>phone-1</code> یک نام ثابت دلخواه برای این گوشی است. برای گوشی دوم از <code>phone-2</code> استفاده کن.</div>
         <div class="steps-list">
-          <div><b>۱</b><span>در برنامه SMS Forwarder یک Rule برای پیامک بانک بساز.</span></div>
-          <div><b>۲</b><span>Method را POST و Content-Type را application/json انتخاب کن.</span></div>
+          <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی بساز.</span></div>
+          <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را POST انتخاب کن.</span></div>
           <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کن.</span></div>
-          <div><b>۴</b><span>متن کامل پیامک را در message و نام فرستنده را در sender بفرست.</span></div>
-          <div><b>۵</b><span>device_id را مطابق شناسه‌ای بفرست که هنگام ثبت کارت وارد کرده‌ای.</span></div>
-          <div><b>۶</b><span>برای بیشترین دقت، bank_code را از فهرست پایین ارسال کن؛ این فیلد اختیاری اما توصیه‌شده است.</span></div>
+          <div><b>۴</b><span>قالب آماده بالا را در بخش Message Template کپی کن.</span></div>
+          <div><b>۵</b><span>متغیرهای <code>{Incoming Number}</code> و <code>{Message Body}</code> را از منوی متغیرهای خود اپ انتخاب کن تا مقدار واقعی هر پیامک جایگزین شود.</span></div>
+          <div><b>۶</b><span>نام بانک را دستی وارد نکن. سیستم بانک را از فرستنده و متن واقعی پیامک تشخیص می‌دهد.</span></div>
         </div>
+        <details>
+          <summary>نمونه JSON برای برنامه‌های دیگر</summary>
+          <pre><code>{
+  "sender": "VARIABLE_FOR_SMS_SENDER",
+  "message": "VARIABLE_FOR_SMS_BODY",
+  "device_id": "phone-1"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+          <p>نام متغیرها در برنامه‌های مختلف فرق می‌کند. فیلد <code>bank_code</code> اختیاری است و برای اتصال عادی لازم نیست.</p>
+        </details>
         <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکن.</div>
       </section>
 
 
       <section class="card" id="banks">
-        <div class="section-title"><div class="icon-box">🏦</div><div><h2>بانک‌ها و برندهای پشتیبانی‌شده</h2><p>تشخیص خودکار نام فرستنده + امکان ارسال کد صریح بانک</p></div></div>
-        <div class="notice">برای مشاهده ماشینی فهرست، از <code>GET {{ base_url }}/api/v1/banks</code> استفاده کن. نام فرستنده پیامک ممکن است در گوشی‌های مختلف فرق کند؛ ارسال <code>bank_code</code> دقت را بیشتر می‌کند.</div>
+        <div class="section-title"><div class="icon-box">🏦</div><div><h2>بانک‌ها و برندهای پشتیبانی‌شده</h2><p>تشخیص خودکار بانک از فرستنده و متن واقعی پیامک</p></div></div>
+        <div class="notice">برای مشاهده ماشینی فهرست، از <code>GET {{ base_url }}/api/v1/banks</code> استفاده کن. در اتصال معمول نیازی به ارسال دستی نام بانک نیست؛ اگر یک نرم‌افزار تخصصی کد بانک را می‌داند، فیلد اختیاری <code>bank_code</code> همچنان پذیرفته می‌شود.</div>
         <div class="status-table">
         {% for bank in banks %}
           <div><code>{{ bank.code }}</code><span>{{ bank.label }}{% if bank.legacy %} — قدیمی/ادغام‌شده{% endif %}</span></div>
