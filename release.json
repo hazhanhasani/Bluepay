@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "min_version": "0.2.3",
-  "description": "رفع تشخیص اشتباه بلوبانک به‌عنوان بانک دی، اولویت‌دهی به فرستنده واقعی، پردازش مجدد پیامک‌های unmatched/review با Retry و افزودن خروجی تشخیصی وبهوک",
+  "description": "رفع قطعی تطبیق پیامک با کارت، نرمال‌سازی بانک/منبع و اعلان تشخیصی در تلگرام",
   "run_migrations": false
 }

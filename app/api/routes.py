@@ -30,6 +30,7 @@ from app.services.integration_service import (
 from app.services.invoice_service import create_invoice, get_invoice_by_token, release_invoice_reservation
 from app.services.settings_service import get_setting
 from app.services.sms_service import ingest_sms
+from app.services.sms_notification_service import send_sms_processing_notice
 from app.services.storage_service import storage
 
 router = APIRouter()
@@ -175,7 +176,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.2.9",
+        "version": "0.3.1",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }
@@ -387,7 +388,7 @@ async def merchant_sms_webhook(
         raise HTTPException(status_code=401, detail="Webhook token نامعتبر است")
 
     sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
-    sms, invoice, result = await ingest_sms(
+    sms, invoice, diagnostic = await ingest_sms(
         session,
         sender,
         message,
@@ -396,11 +397,13 @@ async def merchant_sms_webhook(
         bank_hint=bank_code,
     )
     await session.commit()
+    background_tasks.add_task(send_sms_processing_notice, merchant, sms, invoice, diagnostic)
     if invoice:
         background_tasks.add_task(send_paid_callback, invoice)
     return {
         "success": True,
-        "result": result,
+        "result": diagnostic.result,
+        "detail": diagnostic.detail,
         "sms_id": sms.id,
         "sms_status": sms.status,
         "detected_bank": sms.bank_code,
@@ -408,6 +411,9 @@ async def merchant_sms_webhook(
         "detected_card_last4": sms.card_last4,
         "parse_confidence": sms.parse_confidence,
         "invoice_id": invoice.token if invoice else None,
+        "amount_candidate_count": diagnostic.amount_candidate_count,
+        "bank_candidate_count": diagnostic.bank_candidate_count,
+        "source_candidate_count": diagnostic.source_candidate_count,
     }
 
 
@@ -427,13 +433,14 @@ async def legacy_sms_webhook(
         raise HTTPException(status_code=401, detail="Webhook secret نامعتبر است")
 
     sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
-    sms, invoice, result = await ingest_sms(session, sender, message, device_id, bank_hint=bank_code)
+    sms, invoice, diagnostic = await ingest_sms(session, sender, message, device_id, bank_hint=bank_code)
     await session.commit()
     if invoice:
         background_tasks.add_task(send_paid_callback, invoice)
     return {
         "success": True,
-        "result": result,
+        "result": diagnostic.result,
+        "detail": diagnostic.detail,
         "sms_id": sms.id,
         "invoice_id": invoice.token if invoice else None,
         "deprecated": True,
