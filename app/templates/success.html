@@ -8,6 +8,7 @@
 <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
 <div class="summary">
 <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
+<div><span>کد تطبیق مبلغ</span><b>{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
 <div><span>شماره پیگیری</span><b>{{ invoice.reference_number or 'ثبت نشده' }}</b></div>
 <div><span>وضعیت</span><b>موفق</b></div>
 </div>

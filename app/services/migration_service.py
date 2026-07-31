@@ -25,5 +25,23 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
                 )
             )
             changed = (update.rowcount or 0) > 0
+
+        invoice_result = await connection.execute(text("PRAGMA table_info(invoices)"))
+        invoice_columns = {str(row[1]) for row in invoice_result.fetchall()}
+        if "unique_amount_rial" not in invoice_columns:
+            await connection.execute(
+                text("ALTER TABLE invoices ADD COLUMN unique_amount_rial BIGINT NOT NULL DEFAULT 0")
+            )
+            changed = True
+
+        # Protect pending invoices created by older versions as well.
+        await connection.execute(
+            text(
+                "INSERT OR IGNORE INTO amount_reservations "
+                "(card_id, invoice_token, payable_amount_rial, expires_at, created_at, updated_at) "
+                "SELECT card_id, token, payable_amount_rial, expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                "FROM invoices WHERE status = 'pending'"
+            )
+        )
     if changed:
         storage.mark_dirty()

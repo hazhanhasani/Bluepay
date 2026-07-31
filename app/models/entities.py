@@ -67,6 +67,7 @@ class Invoice(TimestampMixin, Base):
     base_amount_rial: Mapped[int] = mapped_column(BigInteger)
     fee_amount_rial: Mapped[int] = mapped_column(BigInteger)
     customer_fee_rial: Mapped[int] = mapped_column(BigInteger)
+    unique_amount_rial: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     payable_amount_rial: Mapped[int] = mapped_column(BigInteger, index=True)
     fee_mode: Mapped[str] = mapped_column(String(20))
 
@@ -80,6 +81,19 @@ class Invoice(TimestampMixin, Base):
 
     merchant: Mapped[Merchant] = relationship(back_populates="invoices")
     card: Mapped[BankCard] = relationship(back_populates="invoices")
+
+
+class AmountReservation(TimestampMixin, Base):
+    __tablename__ = "amount_reservations"
+    __table_args__ = (
+        UniqueConstraint("card_id", "payable_amount_rial", name="uq_active_card_payable_amount"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    card_id: Mapped[int] = mapped_column(ForeignKey("bank_cards.id", ondelete="CASCADE"), index=True)
+    invoice_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    payable_amount_rial: Mapped[int] = mapped_column(BigInteger, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class WalletLedger(TimestampMixin, Base):

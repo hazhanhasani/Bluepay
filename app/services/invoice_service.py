@@ -3,14 +3,17 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
-from app.models import BankCard, Invoice, Merchant, WalletLedger
+from app.models import AmountReservation, BankCard, Invoice, Merchant, WalletLedger
 
 VALID_FEE_MODES = {"customer", "split", "merchant"}
+UNIQUE_AMOUNT_MIN_TOMAN = 1
+UNIQUE_AMOUNT_MAX_TOMAN = 999
 
 
 def utcnow() -> datetime:
@@ -23,6 +26,47 @@ def calculate_customer_fee(fee_rial: int, fee_mode: str) -> int:
     if fee_mode == "split":
         return fee_rial // 2
     return 0
+
+
+async def reserve_unique_payable_amount(
+    session: AsyncSession,
+    *,
+    card_id: int,
+    nominal_amount_rial: int,
+    invoice_token: str,
+    expires_at: datetime,
+) -> tuple[int, int]:
+    """Reserve an exact payable amount for one pending invoice.
+
+    A 1..999 toman matching code is added to the nominal amount. The separate
+    reservation table has a database unique constraint, so even simultaneous
+    invoices cannot receive the same final amount on the same destination card.
+    """
+    now = utcnow()
+    await session.execute(delete(AmountReservation).where(AmountReservation.expires_at < now))
+
+    span = UNIQUE_AMOUNT_MAX_TOMAN - UNIQUE_AMOUNT_MIN_TOMAN + 1
+    start = secrets.randbelow(span) + UNIQUE_AMOUNT_MIN_TOMAN
+    for offset in range(span):
+        code_toman = UNIQUE_AMOUNT_MIN_TOMAN + ((start - UNIQUE_AMOUNT_MIN_TOMAN + offset) % span)
+        unique_amount_rial = code_toman * 10
+        payable_amount_rial = nominal_amount_rial + unique_amount_rial
+        reservation = AmountReservation(
+            card_id=card_id,
+            invoice_token=invoice_token,
+            payable_amount_rial=payable_amount_rial,
+            expires_at=expires_at,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(reservation)
+                await session.flush()
+            return unique_amount_rial, payable_amount_rial
+        except IntegrityError:
+            # Another active invoice already owns this exact amount on the card.
+            continue
+
+    raise ValueError("ظرفیت مبلغ‌های یکتا برای این کارت تکمیل است؛ چند دقیقه بعد دوباره تلاش کنید")
 
 
 async def choose_card(session: AsyncSession, merchant_id: int, card_id: int | None = None) -> BankCard:
@@ -67,6 +111,14 @@ async def create_invoice(
     token = secrets.token_urlsafe(18)
     order_id = order_id or f"MANUAL-{secrets.token_hex(6).upper()}"
     expires_at = utcnow() + timedelta(minutes=ttl_minutes or settings.invoice_ttl_minutes)
+    nominal_amount_rial = base_amount_rial + customer_fee
+    unique_amount_rial, payable_amount_rial = await reserve_unique_payable_amount(
+        session,
+        card_id=card.id,
+        nominal_amount_rial=nominal_amount_rial,
+        invoice_token=token,
+        expires_at=expires_at,
+    )
 
     invoice = Invoice(
         token=token,
@@ -77,7 +129,8 @@ async def create_invoice(
         base_amount_rial=base_amount_rial,
         fee_amount_rial=fee,
         customer_fee_rial=customer_fee,
-        payable_amount_rial=base_amount_rial + customer_fee,
+        unique_amount_rial=unique_amount_rial,
+        payable_amount_rial=payable_amount_rial,
         fee_mode=fee_mode,
         status="pending",
         expires_at=expires_at,
@@ -110,6 +163,9 @@ async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, s
         return False
     merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - invoice.fee_amount_rial)
     invoice.status = status
+    await session.execute(
+        delete(AmountReservation).where(AmountReservation.invoice_token == invoice.token)
+    )
     session.add(
         WalletLedger(
             merchant_id=merchant.id,
@@ -149,6 +205,9 @@ async def confirm_invoice_paid(
     invoice.paid_at = utcnow()
     invoice.matched_sms_id = sms_id
     invoice.reference_number = reference_number
+    await session.execute(
+        delete(AmountReservation).where(AmountReservation.invoice_token == invoice.token)
+    )
 
     session.add(
         WalletLedger(

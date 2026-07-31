@@ -610,7 +610,7 @@ async def prepare_invoice_preview(
     fee_rial = merchant.verification_fee_rial
     customer_fee_rial = calculate_customer_fee(fee_rial, mode)
     base_rial = data["amount_toman"] * 10
-    payable_rial = base_rial + customer_fee_rial
+    nominal_payable_rial = base_rial + customer_fee_rial
 
     await state.update_data(resolved_fee_mode=mode, selected_card_id=card.id)
     await state.set_state(ManualInvoiceState.confirm)
@@ -622,7 +622,8 @@ async def prepare_invoice_preview(
 💵 مبلغ سفارش: <b>{toman(base_rial)} تومان</b>
 ⚙️ کارمزد تأیید: <b>{toman(fee_rial)} تومان</b>
 👤 سهم مشتری از کارمزد: <b>{toman(customer_fee_rial)} تومان</b>
-💳 مبلغ نهایی پرداخت: <b>{toman(payable_rial)} تومان</b>
+🔢 کد تطبیق مبلغ: <b>۱ تا ۹۹۹ تومان، خودکار</b>
+💳 مبلغ قبل از کد تطبیق: <b>{toman(nominal_payable_rial)} تومان</b>
 
 🏦 کارت مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
 🤝 مدل کارمزد: <b>{fee_title(mode)}</b>
@@ -664,7 +665,8 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
 ━━━━━━━━━━━━━━━━
 🧾 شناسه: <code>{invoice.token}</code>
 📝 عنوان: <b>{html.escape(invoice.description or '-')}</b>
-💳 مبلغ پرداخت: <b>{toman(invoice.payable_amount_rial)} تومان</b>
+🔢 کد تطبیق مبلغ: <b>+{toman(invoice.unique_amount_rial)} تومان</b>
+💳 مبلغ دقیق پرداخت: <b>{toman(invoice.payable_amount_rial)} تومان</b>
 🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>
 ⏳ وضعیت: <b>در انتظار پرداخت</b>
 

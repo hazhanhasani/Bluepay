@@ -19,6 +19,7 @@ def paid_payload(invoice: Invoice) -> dict:
         "base_amount_rial": invoice.base_amount_rial,
         "fee_amount_rial": invoice.fee_amount_rial,
         "customer_fee_rial": invoice.customer_fee_rial,
+        "unique_amount_rial": invoice.unique_amount_rial,
         "payable_amount_rial": invoice.payable_amount_rial,
         "reference_number": invoice.reference_number,
         "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
@@ -33,7 +34,7 @@ async def _deliver(url: str, secret: str, payload: dict, event: str, *, retry: b
         "X-Gateway-Event": event,
         "X-Gateway-Delivery": delivery_id,
         "X-Gateway-Timestamp": datetime.now(timezone.utc).isoformat(),
-        "User-Agent": "BluePay-Gateway/0.2.9",
+        "User-Agent": "BluePay-Gateway/0.3.2",
     }
 
     last_result = "not_sent"

@@ -24,7 +24,7 @@ from app.services.storage_service import storage
 
 router = Router(name="admin")
 PAGE_SIZE = 8
-APP_VERSION = "0.2.9"
+APP_VERSION = "0.3.2"
 
 
 def toman(value_rial: int | None) -> str:
@@ -407,6 +407,7 @@ async def admin_invoice_detail(callback: CallbackQuery):
         f"وضعیت: <b>{invoice.status}</b>\n"
         f"مبلغ اصلی: {toman(invoice.base_amount_rial)} تومان\n"
         f"کارمزد: {toman(invoice.fee_amount_rial)} تومان\n"
+        f"کد تطبیق مبلغ: +{toman(invoice.unique_amount_rial)} تومان\n"
         f"پرداختی مشتری: <b>{toman(invoice.payable_amount_rial)} تومان</b>\n"
         f"کارت مقصد: {html.escape(card.bank_code if card else '-')} • ****{card.card_last4 if card else '-'}\n"
         f"مرجع: <code>{html.escape(invoice.reference_number or '-')}</code>"

@@ -161,6 +161,7 @@ def invoice_payload(invoice: Invoice) -> dict:
         "base_amount_rial": invoice.base_amount_rial,
         "fee_amount_rial": invoice.fee_amount_rial,
         "customer_fee_rial": invoice.customer_fee_rial,
+        "unique_amount_rial": invoice.unique_amount_rial,
         "payable_amount_rial": invoice.payable_amount_rial,
         "payment_url": f"{settings.base_url}/pay/{invoice.token}",
         "expires_at": invoice.expires_at.isoformat(),
@@ -176,7 +177,7 @@ async def health():
         "ok": True,
         "storage_ok": backup["last_error"] is None,
         "service": "gateway-bot",
-        "version": "0.3.1",
+        "version": "0.3.2",
         "database": "auto-sqlite-encrypted-github",
         "backup": backup,
     }

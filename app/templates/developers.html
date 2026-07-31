@@ -12,6 +12,7 @@
       <div>
         <span class="badge">BluePay Developers</span>
         <h1>مستندات اتصال سایت و ربات</h1>
+<p>برای جلوگیری از تداخل پرداخت‌های هم‌مبلغ، سیستم به هر فاکتور یک کد تطبیق ۱ تا ۹۹۹ تومانی اضافه می‌کند. همیشه از <code>payable_amount_rial</code> برای مبلغ واریز استفاده کنید.</p>
         <p>ساخت فاکتور، استعلام وضعیت، لغو فاکتور، دریافت Callback و اتصال پیامک بانکی</p>
       </div>
       <a class="ghost-link" href="/">وضعیت سرویس</a>
@@ -83,7 +84,11 @@
   "payment_id": "PAYMENT_TOKEN",
   "order_id": "ORDER-1001",
   "status": "pending",
-  "payable_amount_rial": 2010000,
+  "base_amount_rial": 2000000,
+  "fee_amount_rial": 20000,
+  "customer_fee_rial": 10000,
+  "unique_amount_rial": 3700,
+  "payable_amount_rial": 2013700,
   "payment_url": "{{ base_url }}/pay/PAYMENT_TOKEN",
   "expires_at": "2026-07-31T18:30:00+00:00"
 }</code><button onclick="copyPre(this)">کپی</button></pre>
@@ -182,7 +187,11 @@ async def buy(message: Message):
   "payment_id": "PAYMENT_TOKEN",
   "order_id": "ORDER-1001",
   "status": "paid",
-  "payable_amount_rial": 2010000,
+  "base_amount_rial": 2000000,
+  "fee_amount_rial": 20000,
+  "customer_fee_rial": 10000,
+  "unique_amount_rial": 3700,
+  "payable_amount_rial": 2013700,
   "reference_number": "998877",
   "paid_at": "2026-07-31T18:12:10+00:00"
 }</code><button onclick="copyPre(this)">کپی</button></pre>

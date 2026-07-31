@@ -107,7 +107,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Direct Payment Gateway Bot", version="0.3.1", lifespan=lifespan, docs_url="/openapi", redoc_url=None)
+app = FastAPI(title="Direct Payment Gateway Bot", version="0.3.2", lifespan=lifespan, docs_url="/openapi", redoc_url=None)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

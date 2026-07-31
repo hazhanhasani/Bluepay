@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "min_version": "0.2.3",
-  "description": "رفع قطعی تطبیق پیامک با کارت، نرمال‌سازی بانک/منبع و اعلان تشخیصی در تلگرام",
-  "run_migrations": false
+  "description": "افزودن کد تطبیق مبلغ یکتا برای جلوگیری از تداخل پرداخت‌های هم‌زمان و هم‌مبلغ",
+  "run_migrations": true
 }

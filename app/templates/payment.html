@@ -20,6 +20,7 @@
     <div class="summary">
       <div><span>مبلغ سفارش</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
       <div><span>سهم کارمزد مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>
+      <div><span>کد تطبیق مبلغ</span><b>+{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
       <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
     </div>
   </section>
@@ -33,7 +34,7 @@
 
   <section class="card note">
     <b>نکات مهم</b>
-    <p>مبلغ را دقیقاً برابر عدد بالا واریز کنید. پس از دریافت پیامک بانک، وضعیت این صفحه به‌صورت خودکار تغییر می‌کند.</p>
+    <p>مبلغ را دقیقاً برابر عدد بالا واریز کنید. بخش کوچک «کد تطبیق مبلغ» برای یکتاکردن پرداخت شماست و نباید از مبلغ کم شود. پس از دریافت پیامک بانک، وضعیت این صفحه به‌صورت خودکار تغییر می‌کند.</p>
     <div class="loader-line"><span></span> در حال بررسی پرداخت...</div>
   </section>
 </main>
