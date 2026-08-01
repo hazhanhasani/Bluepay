@@ -1,4 +1,249 @@
 <!doctype html>
 <html lang="fa" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>بلوپی | زیرساخت پرداخت مستقیم</title><link rel="stylesheet" href="/static/style.css"></head>
-<body><main class="shell compact"><section class="card hero"><div class="hero-logo">B</div><span class="badge success">● سرویس عملیاتی</span><h1>زیرساخت پرداخت مستقیم برای سایت و ربات</h1><p>بلوپی فاکتور، مبلغ یکتا، تأیید پیامک بانکی، Callback امضاشده و مدیریت پذیرندگان را در یک سرویس یکپارچه ارائه می‌کند.</p><div class="feature-grid"><div class="feature"><b>تأیید خودکار</b><span>تطبیق مبلغ، بانک، کارت و منبع پیامک</span></div><div class="feature"><b>API پذیرندگان</b><span>ساخت، استعلام و لغو فاکتور</span></div><div class="feature"><b>امنیت تراکنش</b><span>کد تطبیق یکتا و جلوگیری از پردازش تکراری</span></div><div class="feature"><b>Callback امضاشده</b><span>اعلام نتیجه قطعی به سامانه پذیرنده</span></div></div><div class="hero-actions"><a class="primary-link" href="{{ docs_url }}">مشاهده مستندات توسعه‌دهندگان</a></div><div class="status ok"><span></span> سرویس آنلاین و آماده پاسخ‌گویی است</div></section></main></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07101f">
+  <meta name="description" content="بلوپی؛ زیرساخت یکپارچه صدور فاکتور، پرداخت مستقیم کارت‌به‌کارت، تأیید پیامک بانکی و Callback امضاشده برای سایت و ربات.">
+  <meta property="og:title" content="بلوپی | پرداخت مستقیم با تأیید خودکار">
+  <meta property="og:description" content="فاکتور بسازید، پرداخت را با پیامک بانکی تطبیق دهید و نتیجه را از طریق Callback دریافت کنید.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{ base_url }}">
+  <title>بلوپی | پرداخت مستقیم با تأیید خودکار</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+</head>
+<body class="landing-body">
+  <header class="landing-nav">
+    <div class="landing-container nav-inner">
+      <a class="brand" href="#top" aria-label="صفحه اصلی بلوپی">
+        <span class="brand-mark">B</span>
+        <span><b>بلوپی</b><small>BluePay</small></span>
+      </a>
+      <nav class="nav-links" aria-label="منوی اصلی">
+        <a href="#how">نحوه کار</a>
+        <a href="#features">امکانات</a>
+        <a href="#developers">توسعه‌دهندگان</a>
+        <a href="#security">امنیت</a>
+        <a href="#faq">سؤالات متداول</a>
+      </nav>
+      <a class="nav-cta" href="{{ telegram_url }}">شروع در تلگرام</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="landing-hero">
+      <div class="hero-glow hero-glow-one"></div>
+      <div class="hero-glow hero-glow-two"></div>
+      <div class="landing-container hero-layout">
+        <div class="hero-copy">
+          <div class="live-pill"><i></i> سامانه عملیاتی و آماده پردازش</div>
+          <h1>پرداخت مستقیم،<br><span>با تأیید خودکار.</span></h1>
+          <p class="hero-lead">بلوپی فاکتور پرداخت می‌سازد، مبلغ یکتا تولید می‌کند، پیامک بانکی را تطبیق می‌دهد و نتیجه قطعی را همان لحظه به سایت یا ربات شما برمی‌گرداند.</p>
+          <div class="hero-buttons">
+            <a class="landing-button primary" href="{{ telegram_url }}">راه‌اندازی در تلگرام <span>←</span></a>
+            <a class="landing-button secondary" href="{{ docs_url }}">مشاهده مستندات API</a>
+          </div>
+          <div class="hero-points">
+            <span>بدون ورود اطلاعات حساس کارت</span>
+            <span>Callback امضاشده</span>
+            <span>چندفروشگاهی</span>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="نمایش جریان پرداخت بلوپی">
+          <div class="visual-orbit orbit-one"></div>
+          <div class="visual-orbit orbit-two"></div>
+          <div class="payment-preview">
+            <div class="preview-top">
+              <span class="preview-logo">B</span>
+              <div><b>فاکتور پرداخت</b><small>بلوپی امن</small></div>
+              <span class="preview-status">در انتظار پرداخت</span>
+            </div>
+            <div class="preview-amount"><small>مبلغ دقیق</small><strong>۱۰۰٬۹۴۴</strong><span>تومان</span></div>
+            <div class="preview-card">
+              <div><span>کارت مقصد</span><b>بلوبانک •••• ۱۴۷۶</b></div>
+              <div><span>کد تطبیق</span><b>+۹۴۴ تومان</b></div>
+            </div>
+            <div class="preview-progress"><i></i><span>در انتظار پیامک واریز بانک…</span></div>
+          </div>
+          <div class="floating-event event-one"><i>✓</i><span><b>پرداخت تأیید شد</b><small>تطبیق دقیق مبلغ و بانک</small></span></div>
+          <div class="floating-event event-two"><i>↗</i><span><b>Callback ارسال شد</b><small>HTTP 200 • امضای معتبر</small></span></div>
+        </div>
+      </div>
+      <div class="landing-container metric-strip">
+        <div><strong>۱–۹۹۹</strong><span>تومان کد تطبیق یکتا</span></div>
+        <div><strong>۱ API</strong><span>اختصاصی برای هر فروشگاه</span></div>
+        <div><strong>۳ تلاش</strong><span>برای تحویل Callback</span></div>
+        <div><strong>۳۴+</strong><span>الگوی بانکی قابل تشخیص</span></div>
+      </div>
+    </section>
+
+    <section class="landing-section" id="how">
+      <div class="landing-container">
+        <div class="section-kicker">مسیر یک تراکنش</div>
+        <div class="section-heading split-heading">
+          <div><h2>از ساخت فاکتور تا تأیید پرداخت، سه مرحله روشن</h2></div>
+          <p>هر مرحله خروجی مرحله قبل را دریافت می‌کند؛ بدون بررسی دستی و بدون نیاز به پنل جداگانه.</p>
+        </div>
+        <div class="flow-grid">
+          <article class="flow-card">
+            <span class="step-number">۰۱</span>
+            <div class="flow-icon">🧾</div>
+            <h3>فاکتور صادر می‌شود</h3>
+            <p>از ربات یا API، مبلغ و سفارش ثبت می‌شود و بلوپی یک لینک پرداخت با مبلغ دقیق ایجاد می‌کند.</p>
+            <code>POST /api/v1/invoices</code>
+          </article>
+          <div class="flow-arrow">←</div>
+          <article class="flow-card">
+            <span class="step-number">۰۲</span>
+            <div class="flow-icon">📨</div>
+            <h3>پیامک بانک تطبیق می‌خورد</h3>
+            <p>پیامک واریز از گوشی پذیرنده ارسال و با مبلغ، بانک، کارت مقصد و منبع پیامک بررسی می‌شود.</p>
+            <code>match(payment)</code>
+          </article>
+          <div class="flow-arrow">←</div>
+          <article class="flow-card">
+            <span class="step-number">۰۳</span>
+            <div class="flow-icon">🔔</div>
+            <h3>نتیجه قطعی تحویل می‌شود</h3>
+            <p>فاکتور تأیید، کیف پول به‌روزرسانی و Callback امضاشده به فروشگاه مربوط ارسال می‌شود.</p>
+            <code>payment.paid</code>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section section-muted" id="features">
+      <div class="landing-container">
+        <div class="section-kicker">امکانات محصول</div>
+        <div class="section-heading"><h2>ابزارهایی که یک پرداخت‌یار واقعی نیاز دارد</h2><p>تمام کنترل‌های مالی و فنی از داخل ربات مدیریت می‌شوند و هر فروشگاه اتصال مستقل خودش را دارد.</p></div>
+        <div class="product-grid">
+          <article class="product-card featured"><span>🏪</span><h3>چند فروشگاه، اتصال‌های مستقل</h3><p>برای هر فروشگاه یک API Key و Callback مستقل تعریف کنید و گزارش‌ها و سفارش‌ها را جدا نگه دارید.</p><b>مدیریت متمرکز، دسترسی تفکیک‌شده</b></article>
+          <article class="product-card"><span>🧾</span><h3>فاکتور دستی و API</h3><p>بدون کدنویسی از ربات لینک بسازید یا ساخت، استعلام و لغو فاکتور را از API انجام دهید.</p></article>
+          <article class="product-card"><span>🎯</span><h3>مبلغ یکتای هوشمند</h3><p>برای پرداخت‌های هم‌زمان، کد تطبیق ۱ تا ۹۹۹ تومان به مبلغ اضافه می‌شود تا خطای تأیید کاهش پیدا کند.</p></article>
+          <article class="product-card"><span>💼</span><h3>کیف پول و کارمزد منعطف</h3><p>کارمزد سراسری یا اختصاصی تعیین کنید؛ مشتری، پذیرنده، تقسیم مساوی یا سرویس رایگان.</p></article>
+          <article class="product-card"><span>📱</span><h3>تشخیص هوشمند پیامک</h3><p>پیام‌های غیرپرداختی، رمز پویا و برداشت بی‌صدا حذف می‌شوند و فقط واریزهای مرتبط بررسی می‌شوند.</p></article>
+          <article class="product-card"><span>🛡️</span><h3>کنترل تکرار و خطا</h3><p>هر پیامک اثرانگشت یکتا دارد تا یک پرداخت دوباره تأیید، Callback یا مشمول کارمزد نشود.</p></article>
+          <article class="product-card"><span>⚙️</span><h3>مدیریت کامل از تلگرام</h3><p>کارت‌ها، فروشگاه‌ها، API، Callback، کیف پول، کارمزد، کاربران و ظاهر ربات در یک پنل.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section developer-section" id="developers">
+      <div class="landing-container developer-layout">
+        <div class="developer-copy">
+          <div class="section-kicker">برای توسعه‌دهندگان</div>
+          <h2>با یک درخواست، لینک پرداخت آماده است</h2>
+          <p>قرارداد API نسخه‌بندی‌شده، خطاهای استاندارد، Rate Limit مشخص و Callback امضاشده، اتصال بلوپی به هر سایت یا ربات را ساده می‌کند.</p>
+          <ul class="developer-list">
+            <li>ساخت، استعلام و لغو فاکتور</li>
+            <li>یک API Key مستقل برای هر فروشگاه</li>
+            <li>Callback جداگانه با Secret اختصاصی</li>
+            <li>شناسه درخواست و پاسخ خطای استاندارد</li>
+          </ul>
+          <a class="text-link" href="{{ docs_url }}">ورود به مستندات کامل API ←</a>
+        </div>
+        <div class="code-window">
+          <div class="code-window-top"><span></span><span></span><span></span><b>create-invoice</b></div>
+          <div class="code-tabs" role="tablist">
+            <button class="active" type="button" data-code-tab="curl">cURL</button>
+            <button type="button" data-code-tab="php">PHP</button>
+            <button type="button" data-code-tab="node">Node.js</button>
+          </div>
+          <pre class="code-panel active" data-code-panel="curl"><code>curl -X POST "{{ base_url }}/api/v1/invoices" \
+  -H "Authorization: Bearer bp_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount_toman": 200000,
+    "order_id": "ORDER-1001",
+    "description": "خرید سرویس",
+    "fee_mode": "default"
+  }'</code></pre>
+          <pre class="code-panel" data-code-panel="php"><code>$response = Http::withToken('bp_live_xxx')
+  ->post('{{ base_url }}/api/v1/invoices', [
+    'amount_toman' => 200000,
+    'order_id' => 'ORDER-1001',
+    'description' => 'خرید سرویس',
+    'fee_mode' => 'default',
+  ]);
+
+$paymentUrl = $response['payment_url'];</code></pre>
+          <pre class="code-panel" data-code-panel="node"><code>const response = await fetch(
+  '{{ base_url }}/api/v1/invoices', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer bp_live_xxx',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      amount_toman: 200000,
+      order_id: 'ORDER-1001',
+      fee_mode: 'default'
+    })
+  }
+);
+
+const invoice = await response.json();</code></pre>
+          <div class="code-response"><span>201 Created</span><code>{ "success": true, "payment_url": "..." }</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section section-muted" id="security">
+      <div class="landing-container security-layout">
+        <div class="security-core">
+          <div class="security-shield">✓</div>
+          <div><span>لایه اعتماد بلوپی</span><h2>امنیت از قرارداد API تا پیامک بانک</h2><p>داده‌های حساس کارت خریدار دریافت نمی‌شوند؛ دسترسی فروشگاه‌ها تفکیک شده و نتیجه پرداخت با مکانیزم‌های ضدتکرار و امضای Callback محافظت می‌شود.</p></div>
+        </div>
+        <div class="security-grid">
+          <div><b>HTTPS</b><span>ارتباط رمزنگاری‌شده</span></div>
+          <div><b>HMAC</b><span>امضای Callback</span></div>
+          <div><b>Rate Limit</b><span>کنترل درخواست API</span></div>
+          <div><b>Idempotency</b><span>جلوگیری از پردازش تکراری</span></div>
+          <div><b>Token Rotation</b><span>تعویض توکن وبهوک</span></div>
+          <div><b>Phone Verify</b><span>احراز شماره تلگرام</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-section" id="faq">
+      <div class="landing-container faq-layout">
+        <div><div class="section-kicker">سؤالات متداول</div><h2>پیش از شروع چه چیزی لازم است؟</h2><p>برای راه‌اندازی، حساب تلگرام، یک کارت مقصد و گوشی دریافت‌کننده پیامک بانکی کافی است.</p></div>
+        <div class="faq-list">
+          <details open><summary>بلوپی اطلاعات کارت خریدار را ذخیره می‌کند؟</summary><p>خیر. پرداخت مستقیم به کارت مقصد انجام می‌شود و بلوپی رمز، CVV2 یا اطلاعات ورود بانکی خریدار را دریافت نمی‌کند.</p></details>
+          <details><summary>آیا بدون اتصال API هم می‌توان فاکتور ساخت؟</summary><p>بله. پذیرنده می‌تواند فاکتور دستی را مستقیماً از داخل ربات ایجاد و لینک آن را برای مشتری ارسال کند.</p></details>
+          <details><summary>برای هر فروشگاه چند API ساخته می‌شود؟</summary><p>هر فروشگاه دقیقاً یک API Key فعال دارد. در صورت نیاز، کلید قبلی بازنشانی و با کلید جدید جایگزین می‌شود.</p></details>
+          <details><summary>اگر Callback فروشگاه در دسترس نباشد چه می‌شود؟</summary><p>بلوپی تحویل Callback را تا سه مرتبه با فاصله زمانی مشخص تکرار می‌کند و پاسخ‌های HTTP 2xx را موفق در نظر می‌گیرد.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-cta">
+      <div class="landing-container cta-card">
+        <div><span>آماده راه‌اندازی هستید؟</span><h2>اولین فاکتور پرداخت خود را همین حالا بسازید.</h2><p>ثبت‌نام، کارت مقصد، وبهوک پیامک و API فروشگاه از داخل ربات مدیریت می‌شوند.</p></div>
+        <div class="cta-actions"><a class="landing-button primary" href="{{ telegram_url }}">شروع در تلگرام</a><a class="landing-button secondary" href="{{ docs_url }}">مستندات API</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="landing-footer">
+    <div class="landing-container footer-grid">
+      <div class="footer-brand"><span class="brand-mark">B</span><div><b>بلوپی</b><p>زیرساخت پرداخت مستقیم با تأیید هوشمند پیامک بانکی.</p></div></div>
+      <div><b>محصول</b><a href="#how">نحوه کار</a><a href="#features">امکانات</a><a href="{{ docs_url }}">مستندات API</a></div>
+      <div><b>دسترسی</b><a href="{{ telegram_url }}">ربات تلگرام</a><a href="{{ health_url }}">وضعیت سرویس</a><a href="#security">امنیت</a></div>
+      <div><b>نسخه</b><span>BluePay {{ app_version }}</span><span>API v1</span></div>
+    </div>
+    <div class="landing-container footer-bottom"><span>© ۱۴۰۵ بلوپی — تمامی حقوق محفوظ است.</span><span>طراحی‌شده برای فروشگاه‌ها و ربات‌های فارسی</span></div>
+  </footer>
+
+  <script>
+    document.querySelectorAll('[data-code-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const name = button.dataset.codeTab;
+        document.querySelectorAll('[data-code-tab]').forEach((item) => item.classList.toggle('active', item === button));
+        document.querySelectorAll('[data-code-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.codePanel === name));
+      });
+    });
+  </script>
+</body>
+</html>

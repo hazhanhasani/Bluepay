@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import httpx
 import json
 import re
 import secrets
@@ -38,6 +39,7 @@ from app.version import APP_VERSION
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
+_BOT_USERNAME_CACHE: str | None = None
 
 
 def rial_to_toman(value: int) -> int:
@@ -90,7 +92,42 @@ async def health():
 
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request, "docs_url": f"{settings.base_url}/developers"})
+    return templates.TemplateResponse(
+        "home.html",
+        {
+            "request": request,
+            "base_url": settings.base_url,
+            "docs_url": f"{settings.base_url}/developers",
+            "telegram_url": f"{settings.base_url}/telegram",
+            "health_url": f"{settings.base_url}/health",
+            "app_version": APP_VERSION,
+        },
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@router.get("/telegram", include_in_schema=False)
+async def open_telegram_bot():
+    """Resolve the bot username without requiring a third installation variable."""
+    global _BOT_USERNAME_CACHE
+    if not _BOT_USERNAME_CACHE:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"https://api.telegram.org/bot{settings.bot_token}/getMe")
+                response.raise_for_status()
+                payload = response.json()
+            username = str((payload.get("result") or {}).get("username") or "").strip().lstrip("@")
+            if username:
+                _BOT_USERNAME_CACHE = username
+        except Exception as exc:
+            print(f"telegram_link_resolve_error={type(exc).__name__}: {exc}")
+    if _BOT_USERNAME_CACHE:
+        return RedirectResponse(
+            url=f"https://t.me/{_BOT_USERNAME_CACHE}",
+            status_code=302,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        )
+    return RedirectResponse(url=f"{settings.base_url}/developers", status_code=302)
 
 
 @router.get("/downloads/sms-forwarder", include_in_schema=False)
