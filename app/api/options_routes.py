@@ -767,10 +767,16 @@ async def merchant_options_portal(request: Request, merchant_id: int, token: str
         return templates.TemplateResponse("not_found.html", {"request": request}, status_code=404)
     summary = await option_summary(session, merchant.id)
     resources: dict[str, list[Any]] = {}
+    portal_context = ApiContext(merchant=merchant, store=None, legacy=True)
     for key, model in RESOURCE_MODELS.items():
         if key == "refunds":
             continue
-        resources[key] = list((await session.scalars(select(model).where(model.merchant_id == merchant.id).order_by(model.id.desc()).limit(50))).all())
+        # Some option resources (notably AbVariant) are scoped through a
+        # parent table and do not expose merchant_id directly. Reuse the same
+        # scope builder as the public API instead of assuming every model has
+        # a merchant_id column.
+        stmt = _scope_stmt(model, portal_context).order_by(model.id.desc()).limit(50)
+        resources[key] = list((await session.scalars(stmt)).all())
     funnel = await analytics_funnel(session, merchant.id, 30)
     return templates.TemplateResponse("options.html", {
         "request": request,
