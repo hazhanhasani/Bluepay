@@ -74,6 +74,12 @@ async def ensure_runtime_settings(session: AsyncSession) -> dict[str, str]:
     default_fee, default_mode = await get_fee_defaults(session)
     await set_setting(session, "default_verification_fee_rial", str(default_fee))
     await set_setting(session, "default_fee_mode", default_mode)
+    if await get_setting(session, "access_force_join_enabled") is None:
+        await set_setting(session, "access_force_join_enabled", "0")
+    if await get_setting(session, "access_phone_verification_enabled") is None:
+        await set_setting(session, "access_phone_verification_enabled", "0")
+    if await get_setting(session, "access_required_channels") is None:
+        await set_setting(session, "access_required_channels", "[]")
     await set_setting(session, "github_repository", settings.github_repository)
     await set_setting(session, "github_branch", settings.github_branch)
     await set_setting(session, "database_mode", "sqlite-encrypted-github-snapshot")

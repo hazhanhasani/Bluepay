@@ -31,6 +31,15 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
                 text("ALTER TABLE merchants ADD COLUMN sms_token_version INTEGER NOT NULL DEFAULT 1")
             )
             changed = True
+        if "phone_number_encrypted" not in merchant_columns:
+            await connection.execute(text("ALTER TABLE merchants ADD COLUMN phone_number_encrypted TEXT"))
+            changed = True
+        if "phone_last4" not in merchant_columns:
+            await connection.execute(text("ALTER TABLE merchants ADD COLUMN phone_last4 VARCHAR(4)"))
+            changed = True
+        if "phone_verified_at" not in merchant_columns:
+            await connection.execute(text("ALTER TABLE merchants ADD COLUMN phone_verified_at DATETIME"))
+            changed = True
 
         invoice_result = await connection.execute(text("PRAGMA table_info(invoices)"))
         invoice_columns = {str(row[1]) for row in invoice_result.fetchall()}

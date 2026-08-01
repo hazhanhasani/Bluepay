@@ -27,6 +27,10 @@ class Merchant(TimestampMixin, Base):
     callback_secret: Mapped[str | None] = mapped_column(String(160), nullable=True)
     sms_token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
+    phone_number_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     cards: Mapped[list[BankCard]] = relationship(back_populates="merchant", cascade="all, delete-orphan")
     invoices: Mapped[list[Invoice]] = relationship(back_populates="merchant", foreign_keys="Invoice.merchant_id")
     stores: Mapped[list[Store]] = relationship(back_populates="merchant", cascade="all, delete-orphan")

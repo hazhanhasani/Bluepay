@@ -320,6 +320,10 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
         <div class="notice warning">توکن واقعی عمداً در این صفحه پنهان شده است. URL کامل را فقط از «اتصال و API ← وبهوک پیامک» داخل ربات دریافت کنید. در صورت افشا، همان‌جا گزینه «تعویض توکن امنیتی وبهوک» را بزنید.</div>
+        <div class="notice">
+          <b>نصب برنامه:</b> برای امنیت پیامک‌های بانکی فقط نسخه رسمی ناشر را نصب کنید.
+          <a href="{{ sms_forwarder_download_url }}" rel="nofollow noreferrer" target="_blank">دریافت نسخه رسمی SMS Forwarder</a>
+        </div>
         <h3>بدنه استاندارد SMS Forwarder</h3>
         <pre><code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}","received_time":"{time}","incoming_sim":"{in-sim}"}</code><button onclick="copyPre(this)">کپی JSON</button></pre>
         <div class="notice warning"><b>مهم:</b> متغیرهای <code>{in-number}</code>، <code>{msg}</code>، <code>{time}</code> و <code>{in-sim}</code> را با دکمه <b>{}</b> خود برنامه درج کن. Retry پیام‌های قدیمی ممکن است بدنه ذخیره‌شده قبلی را دوباره ارسال کند.</div>

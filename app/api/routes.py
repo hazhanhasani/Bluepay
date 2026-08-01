@@ -93,6 +93,26 @@ async def home(request: Request):
     return templates.TemplateResponse("home.html", {"request": request, "docs_url": f"{settings.base_url}/developers"})
 
 
+@router.get("/downloads/sms-forwarder", include_in_schema=False)
+async def download_sms_forwarder():
+    """Stable BluePay link to the official SMS Forwarder listing.
+
+    The project intentionally does not redistribute modified or third-party APK
+    binaries. Keeping this as a redirect lets the bot and documentation use a
+    stable BluePay URL while installation stays on the publisher's official
+    channel.
+    """
+    return RedirectResponse(
+        url="https://play.google.com/store/apps/details?id=com.frzinapps.smsforward",
+        status_code=302,
+        headers={
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/developers", response_class=HTMLResponse)
 async def developer_docs(request: Request):
     return templates.TemplateResponse(
@@ -103,7 +123,8 @@ async def developer_docs(request: Request):
             "sms_webhook_url": f"{settings.base_url}/webhooks/sms/MERCHANT_ID/••••••••••••",
             "banks": BANK_PROFILES,
             "app_version": APP_VERSION,
-            "docs_contract_version": "2026-08-01.2",
+            "docs_contract_version": "2026-08-01.3",
+            "sms_forwarder_download_url": f"{settings.base_url}/downloads/sms-forwarder",
         },
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache"},
     )

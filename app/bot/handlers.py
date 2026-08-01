@@ -11,6 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 
+from app.bot.access import show_access_prompt
 from app.bot.keyboards import (
     BANK_LABELS,
     account_menu,
@@ -63,6 +64,7 @@ from app.core.security import encrypt_text, random_secret
 from app.core.urls import validate_public_https_url
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.services.access_service import evaluate_access
 from app.services.callback_service import send_paid_callback, send_store_test_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url, rotate_merchant_sms_token
@@ -155,6 +157,16 @@ async def start(message: Message):
             message.from_user.full_name,
         )
         await session.commit()
+        decision = await evaluate_access(
+            session,
+            message.bot,
+            merchant,
+            force_membership_refresh=True,
+        )
+
+    if not decision.allowed:
+        await show_access_prompt(message, decision)
+        return
 
     text, merchant = await home_view(message.from_user.id)
     if created and merchant and merchant.is_admin:
@@ -183,6 +195,7 @@ async def account_panel(callback: CallbackQuery):
             f"🪪 شناسه پذیرنده: <code>BP-{merchant.id:06d}</code>",
             f"📡 وضعیت حساب: <b>{badge('active' if merchant.is_active else 'inactive')}</b>",
             f"🛡 سطح دسترسی: <b>{'مدیر سامانه' if merchant.is_admin else 'پذیرنده'}</b>",
+            f"📱 احراز شماره: <b>{'تأییدشده ••••' + esc(merchant.phone_last4) if merchant.phone_verified_at and merchant.phone_last4 else 'تأیید نشده'}</b>",
             f"📅 تاریخ عضویت: <b>{merchant.created_at.strftime('%Y-%m-%d') if merchant.created_at else '-'}</b>",
         ],
         subtitle="مشخصات و وضعیت حساب کاربری",

@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from aiogram.types import CopyTextButton, InlineKeyboardButton, WebAppInfo
 
 from app.services.appearance_service import InlineKeyboardMarkup
+from app.core.config import settings
 
 from app.parsers import BANK_LABELS
 
@@ -129,6 +130,7 @@ def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
 def sms_webhook_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="📥 دریافت نسخه رسمی SMS Forwarder", url=f"{settings.base_url}/downloads/sms-forwarder")],
             [InlineKeyboardButton(text="🔄 تعویض توکن امنیتی وبهوک", callback_data="sms:webhook:rotate")],
             [InlineKeyboardButton(text="📖 آموزش تصویری SMS Forwarder", url=docs_url + "#sms-webhook")],
             [InlineKeyboardButton(text="‹ بازگشت به مرکز اتصال", callback_data="connect")],
@@ -364,7 +366,8 @@ def admin_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🖥 سلامت سامانه", callback_data="admin:system"),
             ],
             [InlineKeyboardButton(text="⚙️ پیش‌فرض‌های کارمزد", callback_data="admin:fee-defaults")],
-        [InlineKeyboardButton(text="🎨 ظاهر و کلیدهای ربات", callback_data="admin:appearance")],
+            [InlineKeyboardButton(text="🔐 عضویت و احراز هویت", callback_data="admin:access")],
+            [InlineKeyboardButton(text="🎨 ظاهر و کلیدهای ربات", callback_data="admin:appearance")],
             [InlineKeyboardButton(text="📦 مدیریت انتشار نسخه", callback_data="admin:update")],
             [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی پذیرنده", callback_data="home")],
         ]

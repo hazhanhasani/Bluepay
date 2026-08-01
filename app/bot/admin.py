@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timezone
 
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
@@ -17,7 +17,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import joinedload
 
 from app.bot.keyboards import admin_menu, main_menu
-from app.bot.states import AdminAppearanceEmojiState, AdminFeeState, AdminSmsApproveState, AdminWalletAdjustState
+from app.bot.states import (
+    AdminAppearanceEmojiState,
+    AdminFeeState,
+    AdminRequiredChannelState,
+    AdminSmsApproveState,
+    AdminWalletAdjustState,
+)
 from app.bot.presentation import (
     badge,
     error,
@@ -34,6 +40,14 @@ from app.bot.presentation import (
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.services.access_service import (
+    RequiredChannel,
+    add_required_channel,
+    get_access_settings,
+    remove_required_channel,
+    set_force_join_enabled,
+    set_phone_verification_enabled,
+)
 from app.services.appearance_service import (
     THEME_LABELS,
     VALID_BUTTON_THEMES,
@@ -103,6 +117,13 @@ def merchant_detail_keyboard(merchant: Merchant, page: int, self_id: int) -> Inl
             InlineKeyboardButton(text="🌐 استفاده از پیش‌فرض", callback_data=f"admin:mfeedefault:{merchant.id}:{page}"),
         ],
     ]
+    if merchant.phone_verified_at:
+        rows.append([
+            InlineKeyboardButton(
+                text="♻️ لغو احراز شماره",
+                callback_data=f"admin:mphone:reset:{merchant.id}:{page}",
+            )
+        ])
     if merchant.telegram_user_id != self_id:
         label = "✅ فعال‌کردن حساب" if not merchant.is_active else "⛔ غیرفعال‌کردن حساب"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"admin:mtoggle:{merchant.id}:{page}")])
@@ -155,6 +176,74 @@ def invoices_keyboard(invoices: list[Invoice], back_data: str = "admin:panel") -
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def access_settings_keyboard(access) -> InlineKeyboardMarkup:
+    join_label = "خاموش‌کردن عضویت اجباری" if access.force_join_enabled else "فعال‌کردن عضویت اجباری"
+    phone_label = "خاموش‌کردن احراز شماره" if access.phone_verification_enabled else "فعال‌کردن احراز شماره"
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=f"📢 {join_label}", callback_data="admin:access:toggle:join")],
+        [InlineKeyboardButton(text=f"📱 {phone_label}", callback_data="admin:access:toggle:phone")],
+        [InlineKeyboardButton(text="＋ افزودن کانال اجباری", callback_data="admin:access:add")],
+    ]
+    for channel in access.required_channels:
+        rows.append(
+            [
+                InlineKeyboardButton(text=f"📣 {short(channel.title, 28)}", url=channel.join_url),
+                InlineKeyboardButton(
+                    text="حذف ×",
+                    callback_data=f"admin:access:remove:{channel.chat_id}",
+                ),
+            ]
+        )
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="↻ بازخوانی وضعیت", callback_data="admin:access")],
+            [InlineKeyboardButton(text="↩️ مرکز مدیریت", callback_data="admin:panel")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def access_panel_payload(*, notice: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
+    async with SessionLocal() as session:
+        access = await get_access_settings(session)
+        total = int(await session.scalar(select(func.count(Merchant.id)).where(Merchant.is_admin.is_(False))) or 0)
+        verified = int(
+            await session.scalar(
+                select(func.count(Merchant.id)).where(
+                    Merchant.is_admin.is_(False),
+                    Merchant.phone_verified_at.is_not(None),
+                )
+            )
+            or 0
+        )
+
+    lines = [
+        f"📢 عضویت اجباری: <b>{'فعال' if access.force_join_enabled else 'غیرفعال'}</b>",
+        f"📣 کانال‌های الزامی: <b>{len(access.required_channels):,}</b>",
+        f"📱 احراز هویت شماره تلگرام: <b>{'فعال' if access.phone_verification_enabled else 'غیرفعال'}</b>",
+        f"✅ کاربران دارای شماره تأییدشده: <b>{verified:,} از {total:,}</b>",
+        "",
+        "کاربر ابتدا باید عضویت کانال‌ها را تکمیل کند و سپس شماره متصل به همان حساب تلگرام را با دکمه رسمی ارسال کند.",
+        "مدیر اصلی از محدودیت‌ها معاف است تا در صورت حذف کانال یا تغییر دسترسی بتواند تنظیمات را اصلاح کند.",
+    ]
+    if access.force_join_enabled and not access.required_channels:
+        lines.extend(["", "⚠️ عضویت اجباری فعال است اما کانالی تعریف نشده؛ در این حالت کاربران مسدود نمی‌شوند."])
+    if notice:
+        lines.insert(0, f"✅ {esc(notice)}")
+        lines.insert(1, "")
+    text = panel(
+        "🔐",
+        "عضویت و احراز هویت",
+        lines,
+        subtitle="کنترل دسترسی کاربران پیش از ورود به پنل",
+        footer="برای کانال خصوصی، ربات باید مدیر باشد و لینک دعوت معتبر ثبت شود.",
+    )
+    return text, access_settings_keyboard(access)
+
+
+async def render_access_panel(callback: CallbackQuery, *, notice: str | None = None) -> None:
+    text, keyboard = await access_panel_payload(notice=notice)
+    await callback.message.edit_text(text, reply_markup=keyboard)
 
 
 def appearance_keyboard(*, confirm_reset: bool = False) -> InlineKeyboardMarkup:
@@ -563,6 +652,7 @@ async def admin_panel(callback: CallbackQuery):
             [
                 "• پایش وضعیت کسب‌وکار و تراکنش‌ها",
                 "• مدیریت پذیرندگان، کیف پول و پیش‌فرض‌های کارمزد",
+                "• کنترل عضویت اجباری و احراز هویت شماره تلگرام",
                 "• تنظیم رنگ کلیدها و ایموجی‌های پرمیوم ربات",
                 "• بررسی پیامک‌های بانکی و تطبیق دستی",
                 "• کنترل نسخه، پشتیبان‌گیری و سلامت سرویس",
@@ -573,6 +663,163 @@ async def admin_panel(callback: CallbackQuery):
         reply_markup=admin_menu(),
     )
     await callback.answer()
+
+@router.callback_query(F.data == "admin:access")
+async def admin_access_panel(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    await render_access_panel(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:access:toggle:join")
+async def admin_access_toggle_join(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        access = await get_access_settings(session)
+        if not access.force_join_enabled and not access.required_channels:
+            await callback.answer("ابتدا حداقل یک کانال اجباری اضافه کنید.", show_alert=True)
+            return
+        enabled = not access.force_join_enabled
+        await set_force_join_enabled(session, enabled)
+        await session.commit()
+    await render_access_panel(callback, notice=f"عضویت اجباری {'فعال' if enabled else 'غیرفعال'} شد.")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:access:toggle:phone")
+async def admin_access_toggle_phone(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        access = await get_access_settings(session)
+        enabled = not access.phone_verification_enabled
+        await set_phone_verification_enabled(session, enabled)
+        await session.commit()
+    await render_access_panel(callback, notice=f"احراز هویت شماره تلگرام {'فعال' if enabled else 'غیرفعال'} شد.")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:access:add")
+async def admin_access_add_start(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    await state.set_state(AdminRequiredChannelState.channel)
+    await callback.message.edit_text(
+        panel(
+            "＋",
+            "افزودن کانال اجباری",
+            [
+                "برای کانال عمومی، نام کاربری کانال را ارسال کنید:",
+                "<code>@bluepay_channel</code>",
+                "",
+                "برای کانال خصوصی، شناسه عددی و لینک دعوت را با | جدا کنید:",
+                "<code>-1001234567890 | https://t.me/+InviteCode</code>",
+                "",
+                "ربات باید در کانال مدیر باشد تا بتواند عضویت کاربران را بررسی کند.",
+            ],
+            subtitle="ثبت کانال برای عضویت اجباری",
+            footer="برای لغو، /cancel را ارسال کنید.",
+        )
+    )
+    await callback.answer()
+
+
+@router.message(AdminRequiredChannelState.channel)
+async def admin_access_add_save(message: Message, state: FSMContext):
+    if not await require_admin_message(message):
+        await state.clear()
+        return
+    raw = (message.text or "").strip()
+    if raw.lower() in {"/cancel", "cancel", "لغو"}:
+        await state.clear()
+        text, keyboard = await access_panel_payload(notice="افزودن کانال لغو شد.")
+        await message.answer(text, reply_markup=keyboard)
+        return
+
+    parts = [part.strip() for part in raw.split("|", 1)]
+    chat_ref_raw = parts[0]
+    invite_url = parts[1] if len(parts) > 1 else ""
+    if not chat_ref_raw:
+        await message.answer(error("ورودی نامعتبر است", "شناسه یا نام کاربری کانال را ارسال کنید."))
+        return
+
+    try:
+        chat_ref: int | str = int(chat_ref_raw) if chat_ref_raw.lstrip("-").isdigit() else chat_ref_raw
+        chat = await message.bot.get_chat(chat_ref)
+        bot_member = await message.bot.get_chat_member(chat.id, message.bot.id)
+        status_obj = getattr(bot_member, "status", "")
+        status = getattr(status_obj, "value", str(status_obj)).lower()
+        if status not in {"administrator", "creator"}:
+            await message.answer(
+                error(
+                    "دسترسی ربات کافی نیست",
+                    "ابتدا ربات را در کانال مدیر کنید و دوباره شناسه کانال را ارسال کنید.",
+                )
+            )
+            return
+    except (TelegramBadRequest, TelegramForbiddenError, ValueError) as exc:
+        await message.answer(
+            error(
+                "کانال قابل بررسی نیست",
+                f"شناسه کانال یا دسترسی ربات را بررسی کنید.\n<code>{esc(type(exc).__name__)}</code>",
+            )
+        )
+        return
+
+    username = (getattr(chat, "username", None) or "").strip().lstrip("@")
+    if username:
+        join_url = f"https://t.me/{username}"
+    else:
+        join_url = invite_url
+        if not join_url.startswith(("https://t.me/", "http://t.me/")):
+            await message.answer(
+                error(
+                    "لینک دعوت لازم است",
+                    "کانال خصوصی نام کاربری عمومی ندارد. شناسه و لینک دعوت را با | ارسال کنید.",
+                )
+            )
+            return
+
+    title = (getattr(chat, "title", None) or username or str(chat.id)).strip()[:120]
+    async with SessionLocal() as session:
+        await add_required_channel(
+            session,
+            RequiredChannel(
+                chat_id=int(chat.id),
+                title=title,
+                join_url=join_url,
+                username=username or None,
+            ),
+        )
+        await session.commit()
+    await state.clear()
+    text, keyboard = await access_panel_payload(notice=f"کانال «{title}» اضافه شد.")
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("admin:access:remove:"))
+async def admin_access_remove_channel(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    try:
+        chat_id = int((callback.data or "").rsplit(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("شناسه کانال معتبر نیست.", show_alert=True)
+        return
+    async with SessionLocal() as session:
+        access = await get_access_settings(session)
+        channel = next((item for item in access.required_channels if item.chat_id == chat_id), None)
+        await remove_required_channel(session, chat_id)
+        updated = await get_access_settings(session)
+        if access.force_join_enabled and not updated.required_channels:
+            await set_force_join_enabled(session, False)
+        await session.commit()
+    title = channel.title if channel else str(chat_id)
+    await render_access_panel(callback, notice=f"کانال «{title}» حذف شد.")
+    await callback.answer()
+
 
 async def render_global_fee_defaults(callback: CallbackQuery, *, notice: str | None = None) -> None:
     async with SessionLocal() as session:
@@ -847,6 +1094,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
             f"🏷 نام حساب: <b>{esc(merchant.name)}</b>",
             f"📡 وضعیت: <b>{badge('active' if merchant.is_active else 'inactive')}</b>",
             f"🛡 سطح دسترسی: <b>{'مدیر سامانه' if merchant.is_admin else 'پذیرنده'}</b>",
+            f"📱 احراز شماره: <b>{'تأییدشده ••••' + esc(merchant.phone_last4) if merchant.phone_verified_at and merchant.phone_last4 else 'تأیید نشده'}</b>",
             "",
             "<b>وضعیت مالی</b>",
             f"💼 موجودی کل: <b>{money_toman(merchant.wallet_balance_rial)}</b>",
@@ -869,6 +1117,40 @@ async def admin_merchant_detail(callback: CallbackQuery):
     )
     await callback.message.edit_text(text, reply_markup=merchant_detail_keyboard(merchant, page, callback.from_user.id))
     await callback.answer()
+
+@router.callback_query(F.data.startswith("admin:mphone:reset:"))
+async def admin_reset_merchant_phone(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    try:
+        _, _, _, merchant_id, page = (callback.data or "").split(":")
+    except ValueError:
+        await callback.answer("درخواست معتبر نیست.", show_alert=True)
+        return
+    async with SessionLocal() as session:
+        merchant = await session.get(Merchant, int(merchant_id))
+        if not merchant:
+            await callback.answer("پذیرنده یافت نشد.", show_alert=True)
+            return
+        merchant.phone_number_encrypted = None
+        merchant.phone_last4 = None
+        merchant.phone_verified_at = None
+        merchant_name = merchant.name
+        await session.commit()
+    await callback.message.edit_text(
+        success(
+            "احراز شماره لغو شد",
+            f"شماره تأییدشده حساب <b>{esc(merchant_name)}</b> حذف شد و کاربر در ورود بعدی باید دوباره احراز هویت کند.",
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="↩️ بازگشت به پرونده پذیرنده", callback_data=f"admin:merchant:{merchant_id}:{page}")],
+                [InlineKeyboardButton(text="👑 مرکز مدیریت", callback_data="admin:panel")],
+            ]
+        ),
+    )
+    await callback.answer()
+
 
 @router.callback_query(F.data.startswith("admin:mtoggle:"))
 async def admin_toggle_merchant(callback: CallbackQuery):

@@ -48,3 +48,7 @@ class StoreCallbackState(StatesGroup):
 
 class AdminAppearanceEmojiState(StatesGroup):
     emoji = State()
+
+
+class AdminRequiredChannelState(StatesGroup):
+    channel = State()

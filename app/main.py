@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.api.errors import default_error_code, error_response
 from app.api.routes import router as api_router
+from app.bot.access import AccessGateMiddleware, router as access_router
 from app.bot.admin import router as admin_router
 from app.bot.handlers import router as bot_router
 from app.core.config import settings
@@ -36,7 +37,9 @@ from app.version import APP_VERSION
 
 bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-dp.include_routers(admin_router, bot_router)
+dp.message.outer_middleware(AccessGateMiddleware())
+dp.callback_query.outer_middleware(AccessGateMiddleware())
+dp.include_routers(access_router, admin_router, bot_router)
 
 
 async def expiration_worker() -> None:

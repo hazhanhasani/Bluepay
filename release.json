@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.5.7",
+  "version": "0.5.9",
   "min_version": "0.2.3",
-  "description": "بازکردن صفحه پرداخت داخل Telegram Web App به‌جای Chrome Custom Tab، افزودن دکمه کپی لینک و کاهش خطای ERR_NETWORK_CHANGED هنگام ورود از ربات",
+  "description": "افزودن عضویت اجباری چندکاناله و احراز هویت امن با شماره متصل به حساب تلگرام، همراه با مدیریت کامل از پنل مدیر",
   "run_migrations": true
 }
