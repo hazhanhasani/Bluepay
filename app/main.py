@@ -23,11 +23,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.errors import default_error_code, error_response
 from app.api.routes import router as api_router
-from app.api.options_routes import router as options_api_router
 from app.bot.access import AccessGateMiddleware, router as access_router
 from app.bot.admin import router as admin_router
 from app.bot.handlers import router as bot_router
-from app.bot.options import router as options_bot_router
 from app.core.config import settings
 from app.core.rate_limit import rate_limiter
 from app.db.session import SessionLocal, engine
@@ -36,7 +34,6 @@ from app.services.appearance_service import load_appearance_settings
 from app.services.callback_outbox_service import process_callback_outbox_batch, recover_stale_callback_locks
 from app.services.idempotency_service import cleanup_expired_idempotency
 from app.services.invoice_service import release_invoice_reservation
-from app.services.options_service import process_commerce_schedules, process_fulfillment_jobs, trigger_automations
 from app.services.migration_service import run_runtime_migrations
 from app.services.settings_service import ensure_runtime_settings
 from app.services.startup_service import (
@@ -52,7 +49,7 @@ bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.
 dp = Dispatcher()
 dp.message.outer_middleware(AccessGateMiddleware())
 dp.callback_query.outer_middleware(AccessGateMiddleware())
-dp.include_routers(access_router, admin_router, options_bot_router, bot_router)
+dp.include_routers(access_router, admin_router, bot_router)
 
 
 async def expiration_worker() -> None:
@@ -69,12 +66,6 @@ async def expiration_worker() -> None:
                 )
                 for invoice in invoices:
                     await release_invoice_reservation(session, invoice, "expired")
-                    await trigger_automations(
-                        session,
-                        merchant_id=invoice.merchant_id,
-                        trigger="invoice.expired",
-                        invoice=invoice,
-                    )
                 if invoices:
                     await session.commit()
         except asyncio.CancelledError:
@@ -112,36 +103,6 @@ async def housekeeping_worker() -> None:
             print(f"housekeeping_worker_error={type(exc).__name__}: {exc}")
         await asyncio.sleep(3600)
 
-
-async def fulfillment_worker() -> None:
-    """Process automation, connector, notification and digital-delivery jobs."""
-    while True:
-        try:
-            async with SessionLocal() as session:
-                processed = await process_fulfillment_jobs(session, bot=bot, limit=25)
-                await session.commit()
-            await asyncio.sleep(0.25 if processed else 2)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(f"fulfillment_worker_error={type(exc).__name__}: {exc}")
-            await asyncio.sleep(5)
-
-
-async def commerce_scheduler_worker() -> None:
-    """Create recurring/scheduled invoices and deliver payment reminders."""
-    while True:
-        try:
-            async with SessionLocal() as session:
-                counts = await process_commerce_schedules(session, bot=bot, limit=30)
-                await session.commit()
-            busy = sum(counts.values())
-            await asyncio.sleep(2 if busy else 30)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(f"commerce_scheduler_worker_error={type(exc).__name__}: {exc}")
-            await asyncio.sleep(10)
 
 
 async def telegram_polling_worker() -> None:
@@ -238,8 +199,6 @@ async def lifespan(app: FastAPI):
                 asyncio.create_task(expiration_worker(), name="invoice-expiration"),
                 asyncio.create_task(callback_outbox_worker(), name="callback-outbox"),
                 asyncio.create_task(housekeeping_worker(), name="housekeeping"),
-                asyncio.create_task(fulfillment_worker(), name="fulfillment-options"),
-                asyncio.create_task(commerce_scheduler_worker(), name="commerce-scheduler"),
                 asyncio.create_task(storage.retry_worker(), name="database-backup-retry"),
             ]
         )
@@ -432,7 +391,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
-app.include_router(options_api_router)
 
 
 if __name__ == "__main__":

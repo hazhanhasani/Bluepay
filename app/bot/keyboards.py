@@ -19,7 +19,7 @@ FEE_LABELS = {
 
 def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="➕ ساخت فاکتور جدید", callback_data="invoice:new")],
+        [InlineKeyboardButton(text="🧾 ساخت فاکتور دستی", callback_data="invoice:new")],
         [
             InlineKeyboardButton(text="🧾 فاکتورهای من", callback_data="invoices"),
             InlineKeyboardButton(text="💼 کیف پول", callback_data="wallet"),
@@ -32,7 +32,6 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔗 اتصال و API", callback_data="connect"),
             InlineKeyboardButton(text="👤 حساب پذیرنده", callback_data="account"),
         ],
-        [InlineKeyboardButton(text="🧩 مرکز آپشن‌ها و اتوماسیون", callback_data="options")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="👑 مرکز مدیریت سامانه", callback_data="admin:panel")])
@@ -50,7 +49,7 @@ def account_menu() -> InlineKeyboardMarkup:
 def invoices_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="＋ ساخت فاکتور جدید", callback_data="invoice:new")],
+            [InlineKeyboardButton(text="＋ ساخت فاکتور دستی", callback_data="invoice:new")],
             [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]
     )

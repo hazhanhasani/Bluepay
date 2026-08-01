@@ -313,73 +313,11 @@ async def ingest_sms(
     )
 
     if not amount_candidates:
-        # Optional multi-part payment mode. To avoid unsafe matching, an SMS is
-        # applied only when exactly one active partial-enabled invoice matches
-        # merchant, bank/card and device source.
-        partial_candidates = list(
-            (
-                await session.scalars(
-                    select(Invoice)
-                    .where(
-                        Invoice.status.in_(["pending", "partially_paid"]),
-                        Invoice.completion_mode == "partial",
-                        Invoice.expires_at >= now,
-                        Invoice.received_amount_rial < Invoice.payable_amount_rial,
-                        *([Invoice.merchant_id == merchant_id] if merchant_id is not None else []),
-                    )
-                    .options(joinedload(Invoice.card), joinedload(Invoice.merchant))
-                )
-            ).all()
-        )
-        parsed_bank = normalize_bank_code(parsed.bank_code)
-        incoming_source = normalize_source_id(device_id)
-        eligible: list[Invoice] = []
-        for candidate in partial_candidates:
-            remaining = candidate.payable_amount_rial - int(candidate.received_amount_rial or 0)
-            # Overpayment up to 10% or 100,000 rial is accepted and flagged.
-            allowance = max(100_000, remaining // 10)
-            if parsed.amount_rial > remaining + allowance:
-                continue
-            card_bank = normalize_bank_code(candidate.card.bank_code)
-            if parsed_bank != "generic" and card_bank != parsed_bank:
-                continue
-            if parsed.card_last4 and candidate.card.card_last4 != parsed.card_last4:
-                continue
-            card_source = normalize_source_id(candidate.card.sms_source_id)
-            if incoming_source and card_source and incoming_source != card_source:
-                continue
-            eligible.append(candidate)
-        if len(eligible) == 1:
-            from app.services.options_service import record_partial_payment
-            partial, invoice = await record_partial_payment(
-                session,
-                eligible[0],
-                amount_rial=parsed.amount_rial,
-                sms_id=sms.id,
-                source="bank_sms",
-                reference_number=parsed.reference_number,
-                note="تطبیق خودکار پرداخت چندتکه",
-            )
-            sms.status = "matched" if invoice.status == "paid" else "partial_matched"
-            sms.matched_invoice_id = invoice.id
-            return sms, invoice, SmsIngestDiagnostic(
-                "matched" if invoice.status == "paid" else "partial_matched",
-                (
-                    "فاکتور با آخرین پرداخت تکمیل و تأیید شد"
-                    if invoice.status == "paid"
-                    else f"پرداخت چندتکه ثبت شد؛ مانده {max(0, invoice.payable_amount_rial - invoice.received_amount_rial)} ریال"
-                ),
-                source_candidate_count=1,
-            )
-        sms.status = "review" if len(eligible) > 1 else "unmatched"
+        sms.status = "unmatched"
         return sms, None, SmsIngestDiagnostic(
-            "partial_ambiguous" if len(eligible) > 1 else "no_amount_candidate",
-            (
-                "چند فاکتور چندتکه با این پیامک سازگار است؛ بررسی دستی لازم است"
-                if len(eligible) > 1
-                else f"فاکتور فعال با مبلغ دقیق {parsed.amount_rial} ریال پیدا نشد"
-            ),
-            amount_candidate_count=len(eligible),
+            "no_amount_candidate",
+            f"فاکتور فعال با مبلغ دقیق {parsed.amount_rial} ریال پیدا نشد",
+            amount_candidate_count=0,
             notify=previous_status not in {"unmatched", "review"},
         )
 

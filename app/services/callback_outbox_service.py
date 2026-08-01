@@ -242,24 +242,6 @@ async def _deliver_event(event_id: int) -> None:
                         "next_attempt_at": event.next_attempt_at.isoformat() if event.status == "retry" else None,
                     },
                 )
-                if event.status == "failed":
-                    from app.services.options_service import create_inbox_item, trigger_automations
-                    await create_inbox_item(
-                        session,
-                        merchant_id=invoice.merchant_id,
-                        invoice_id=invoice.id,
-                        category="callback_failed",
-                        severity="high",
-                        title="Callback پس از همه تلاش‌ها ناموفق بود",
-                        detail=event.last_result,
-                    )
-                    await trigger_automations(
-                        session,
-                        merchant_id=invoice.merchant_id,
-                        trigger="callback.failed",
-                        invoice=invoice,
-                        payload={"delivery_id": event.delivery_id, "last_result": event.last_result},
-                    )
         if event.sandbox_invoice_id:
             await session.execute(
                 update(SandboxInvoice)

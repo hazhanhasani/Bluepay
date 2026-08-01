@@ -120,32 +120,6 @@ async def create_invoice(
     if fee > 0 and locked.available_balance_rial < fee:
         raise ValueError("موجودی قابل استفاده کیف پول برای رزرو کارمزد کافی نیست")
 
-    # Optional dynamic fraud and card-routing rules are evaluated centrally so
-    # API, bot and permanent payment links behave consistently.
-    try:
-        from app.services.options_service import evaluate_dynamic_fraud_rules, resolve_card_routing
-        dynamic_score, dynamic_status, _actions = await evaluate_dynamic_fraud_rules(
-            session,
-            merchant_id=locked.id,
-            store_id=store_id,
-            amount_rial=base_amount_rial,
-            source_channel=source_channel,
-        )
-        risk_score = max(risk_score, dynamic_score)
-        if dynamic_status == "blocked":
-            raise ValueError("صدور فاکتور توسط قانون ضدتقلب متوقف شد")
-        if dynamic_status == "review":
-            risk_status = "review"
-        if card_id is None:
-            card_id = await resolve_card_routing(
-                session,
-                merchant_id=locked.id,
-                store_id=store_id,
-                amount_rial=base_amount_rial,
-                source_channel=source_channel,
-            )
-    except ImportError:
-        pass
 
     card = await choose_card(session, locked.id, card_id)
     customer_fee = calculate_customer_fee(fee, fee_mode)
@@ -464,11 +438,6 @@ async def confirm_invoice_paid(
     )
     await session.flush()
     if invoice.purpose == "payment":
-        try:
-            from app.services.options_service import on_invoice_paid_options
-            await on_invoice_paid_options(session, invoice)
-        except ImportError:
-            pass
         await enqueue_live_paid_callback(session, invoice)
     await session.flush()
     return invoice

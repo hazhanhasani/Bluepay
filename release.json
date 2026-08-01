@@ -1,7 +1,7 @@
 {
-  "name": "bluepay-v1.2.0-commerce-automation",
-  "version": "1.2.0",
+  "name": "BluePay Integration Core",
+  "version": "1.2.1",
   "min_version": "1.1.0",
-  "description": "مرکز کامل آپشن‌های تجاری: محصول، لینک دائمی، مشتری، اتوماسیون، اتصال‌ها، پرداخت چندتکه، قالب و زمان‌بندی، اشتراک، تخفیف، همکاری در فروش، درخواست پرداخت، پشتیبانی، شعبه، صندوق و تحلیل تبدیل",
+  "description": "Integration-focused gateway with API, callbacks, SMS confirmation and manual invoices; commerce options and automation disabled.",
   "run_migrations": true
 }

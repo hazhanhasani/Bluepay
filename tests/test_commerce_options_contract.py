@@ -1,84 +1,43 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
-
-from app.db.base import Base
-import app.models  # noqa: F401
-from app.services.options_service import conditions_match
-
 ROOT = Path(__file__).resolve().parents[1]
-ENTITIES = (ROOT / "app/models/entities.py").read_text(encoding="utf-8")
-ROUTES = (ROOT / "app/api/options_routes.py").read_text(encoding="utf-8")
-SERVICE = (ROOT / "app/services/options_service.py").read_text(encoding="utf-8")
 MAIN = (ROOT / "app/main.py").read_text(encoding="utf-8")
-PAYMENT_LINK = (ROOT / "app/templates/payment_link.html").read_text(encoding="utf-8")
-OPTIONS = (ROOT / "app/templates/options.html").read_text(encoding="utf-8")
-MIGRATION = (ROOT / "alembic/versions/20260801_1200_commerce_automation.py").read_text(encoding="utf-8")
+KEYBOARDS = (ROOT / "app/bot/keyboards.py").read_text(encoding="utf-8")
+HANDLERS = (ROOT / "app/bot/handlers.py").read_text(encoding="utf-8")
+PORTAL = (ROOT / "app/templates/portal.html").read_text(encoding="utf-8")
+DOCS = (ROOT / "app/templates/developers.html").read_text(encoding="utf-8")
+INVOICE_SERVICE = (ROOT / "app/services/invoice_service.py").read_text(encoding="utf-8")
+CALLBACK_SERVICE = (ROOT / "app/services/callback_outbox_service.py").read_text(encoding="utf-8")
+ROUTES = (ROOT / "app/api/routes.py").read_text(encoding="utf-8")
 
 
-def test_commerce_tables_create_on_clean_database():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    tables = set(inspect(engine).get_table_names())
-    expected = {
-        "merchant_option_profiles", "products", "customers", "payment_links",
-        "partial_payments", "refund_requests", "automation_rules", "fulfillment_jobs",
-        "integration_connectors", "campaigns", "branches", "customer_wallets",
-        "cashier_shifts", "ab_experiments", "analytics_events", "invoice_templates",
-        "subscription_plans", "subscriptions", "discount_codes", "affiliates",
-        "affiliate_commissions", "support_tickets", "support_messages",
-        "payment_reminders", "payment_requests", "scheduled_invoices",
-    }
-    assert expected <= tables
+def test_integration_focused_runtime_disables_commerce_options():
+    assert "options_api_router" not in MAIN
+    assert "options_bot_router" not in MAIN
+    assert "fulfillment_worker" not in MAIN
+    assert "commerce_scheduler_worker" not in MAIN
+    assert "process_commerce_schedules" not in MAIN
+    assert "trigger_automations" not in MAIN
 
 
-def test_options_api_and_public_experience_contract():
-    required_routes = (
-        '"products": Product', '"payment-links": PaymentLink',
-        '"invoice-templates": InvoiceTemplate', '"subscription-plans": SubscriptionPlan',
-        '"subscriptions": Subscription', '"discount-codes": DiscountCode',
-        '"affiliates": Affiliate', '"support-tickets": SupportTicket',
-        '"payment-requests": PaymentRequest', '"scheduled-invoices": ScheduledInvoice',
-        '@router.get("/l/{slug}"', '@router.get("/customer/{customer_id}/{token}"',
-        '@router.post("/api/v1/options/payment-requests/{request_id}/dispatch")',
-        '@router.post("/api/v1/options/invoice-templates/{template_id}/create-invoice")',
-        '@router.get("/qr/payment-link/{slug}.png"',
-        '@router.post("/webhooks/sms/{merchant_id}/{token}/batch")',
-    )
-    for value in required_routes:
-        assert value in ROUTES
-    assert 'name="discount_code"' in PAYMENT_LINK
-    assert 'name="affiliate_code"' in PAYMENT_LINK
+def test_manual_invoice_remains_primary_user_flow():
+    assert "ساخت فاکتور دستی" in KEYBOARDS
+    assert 'callback_data="invoice:new"' in KEYBOARDS
+    assert "ManualInvoiceState.amount" in HANDLERS
+    assert "ManualInvoiceState.confirm" in HANDLERS
+    assert "create_invoice(" in HANDLERS
 
 
-def test_scheduler_discount_affiliate_and_fulfillment_contract():
-    for value in (
-        "process_commerce_schedules", "resolve_discount_code", "resolve_affiliate_code",
-        "register_affiliate_commission", "dispatch_payment_request",
-        "create_invoice_from_template", "ensure_ordering_window",
-        "product.fulfillment_type", "abandoned_payment_reminder_minutes",
-    ):
-        assert value in SERVICE
-    assert "commerce_scheduler_worker" in MAIN
-    assert 'name="commerce-scheduler"' in MAIN
-    assert conditions_match({"amount_rial_min": 100}, {"amount_rial": 101}) is True
-    assert conditions_match({"amount_rial_max": 100}, {"amount_rial": 101}) is False
+def test_options_and_pos_are_not_exposed_in_active_ui():
+    assert "مرکز آپشن‌ها و اتوماسیون" not in KEYBOARDS
+    assert "/options" not in PORTAL
+    assert "/pos" not in PORTAL
+    assert "آپشن‌های تجاری و اتوماسیون" not in DOCS
 
 
-def test_portal_contains_requested_option_modules():
-    for label in (
-        "محصولات و تحویل خودکار", "لینک پرداخت دائمی", "دفترچه مشتریان",
-        "اتوماسیون بدون کدنویسی", "اتصال‌های آماده", "کمپین و تحلیل تبلیغات",
-        "شعبه و صندوق فروشگاهی", "قالب و زمان‌بندی فاکتور", "کد تخفیف",
-        "همکاری در فروش", "اشتراک و تمدید", "درخواست پرداخت", "مرکز پشتیبانی",
-        "قوانین ضدتقلب",
-    ):
-        assert label in OPTIONS
-
-
-def test_migration_covers_new_invoice_links_and_is_additive():
-    assert 'revision = "20260801_1200"' in MIGRATION
-    for field in ("discount_id", "affiliate_id", "subscription_id"):
-        assert field in MIGRATION
-    assert "def downgrade" in MIGRATION
-    assert "drop_table" not in MIGRATION
+def test_payment_and_callback_core_have_no_commerce_side_effects():
+    assert "on_invoice_paid_options" not in INVOICE_SERVICE
+    assert "trigger_automations" not in CALLBACK_SERVICE
+    assert "create_inbox_item" not in CALLBACK_SERVICE
+    assert "record_analytics_event" not in ROUTES
+    assert "sms_automation_error" not in ROUTES

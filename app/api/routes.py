@@ -1209,33 +1209,13 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
     except Exception:
         card_display = "****-****-****-" + invoice.card.card_last4
         card_copy = ""
-    try:
-        from app.services.options_service import record_analytics_event
-        await record_analytics_event(
-            session,
-            merchant_id=invoice.merchant_id,
-            store_id=invoice.store_id,
-            invoice_id=invoice.id,
-            payment_link_id=invoice.payment_link_id,
-            campaign_id=invoice.campaign_id,
-            variant_id=invoice.ab_variant_id,
-            session_id=request.cookies.get("bp_session"),
-            source=invoice.source_channel,
-            event_type="payment_page.viewed",
-        )
-        await session.commit()
-    except Exception as exc:
-        print(f"payment_analytics_error={type(exc).__name__}: {exc}")
+    option_profile = None
     try:
         from app.models import MerchantVerification
-        from app.services.options_service import ensure_option_profile
-        option_profile = await ensure_option_profile(session, invoice.merchant_id)
         verification = await session.scalar(
             select(MerchantVerification).where(MerchantVerification.merchant_id == invoice.merchant_id)
         )
-        await session.commit()
     except Exception:
-        option_profile = None
         verification = None
     return templates.TemplateResponse(
         "payment.html",
@@ -1382,24 +1362,6 @@ async def merchant_sms_webhook(
             sms_id=sms.id,
             severity="high" if diagnostic.result in {"ambiguous", "partial_ambiguous", "race_or_already_paid"} else "medium",
         )
-    if diagnostic.result not in {"matched", "partial_matched", "duplicate", "ignored_non_payment"}:
-        try:
-            from app.services.options_service import trigger_automations
-            await trigger_automations(
-                session,
-                merchant_id=merchant.id,
-                trigger="sms.unmatched",
-                invoice=invoice,
-                payload={
-                    "sms_id": sms.id,
-                    "result": diagnostic.result,
-                    "detail": diagnostic.detail,
-                    "amount_rial": sms.amount_rial,
-                    "bank_code": sms.bank_code,
-                },
-            )
-        except Exception as exc:
-            print(f"sms_automation_error={type(exc).__name__}: {exc}")
     await write_audit(
         session,
         action=f"sms.{diagnostic.result}",

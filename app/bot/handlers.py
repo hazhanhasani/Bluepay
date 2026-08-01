@@ -738,6 +738,19 @@ async def list_cards(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=cards_menu())
     await callback.answer()
 
+@router.callback_query(F.data.startswith("options"))
+async def removed_commerce_options(callback: CallbackQuery):
+    text, merchant = await home_view(callback.from_user.id)
+    await callback.message.edit_text(
+        info(
+            "این بخش حذف شده است",
+            "بلوپی فقط برای اتصال سایت و ربات، صدور فاکتور و تأیید پرداخت استفاده می‌شود. فاکتور دستی از صفحه اصلی در دسترس است.",
+        ) + "\n\n" + text,
+        reply_markup=main_menu(bool(merchant and merchant.is_admin)),
+    )
+    await callback.answer("مرکز آپشن‌ها حذف شده است.")
+
+
 @router.callback_query(F.data == "flow:cancel")
 async def cancel_flow(callback: CallbackQuery, state: FSMContext):
     await state.clear()
