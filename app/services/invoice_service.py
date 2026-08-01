@@ -304,6 +304,12 @@ async def confirm_invoice_paid(
     invoice.paid_at = utcnow()
     invoice.matched_sms_id = sms_id
     invoice.reference_number = reference_number
+    if invoice.purpose == "payment":
+        invoice.callback_status = "queued" if invoice.callback_url and invoice.callback_secret else "not_configured"
+        invoice.callback_last_result = None
+        invoice.callback_attempted_at = None
+    else:
+        invoice.callback_status = "skipped"
     await session.execute(
         delete(AmountReservation).where(AmountReservation.invoice_token == invoice.token)
     )

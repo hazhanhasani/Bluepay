@@ -130,6 +130,9 @@ class Invoice(TimestampMixin, Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     callback_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     callback_secret: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    callback_status: Mapped[str] = mapped_column(String(24), default="not_attempted", server_default="not_attempted", index=True)
+    callback_last_result: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    callback_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     matched_sms_id: Mapped[int | None] = mapped_column(ForeignKey("sms_transactions.id"), nullable=True)
     reference_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
 

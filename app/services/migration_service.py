@@ -67,6 +67,17 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
         if "client_order_id" not in invoice_columns:
             await connection.execute(text("ALTER TABLE invoices ADD COLUMN client_order_id VARCHAR(120)"))
             changed = True
+        if "callback_status" not in invoice_columns:
+            await connection.execute(
+                text("ALTER TABLE invoices ADD COLUMN callback_status VARCHAR(24) NOT NULL DEFAULT 'not_attempted'")
+            )
+            changed = True
+        if "callback_last_result" not in invoice_columns:
+            await connection.execute(text("ALTER TABLE invoices ADD COLUMN callback_last_result VARCHAR(160)"))
+            changed = True
+        if "callback_attempted_at" not in invoice_columns:
+            await connection.execute(text("ALTER TABLE invoices ADD COLUMN callback_attempted_at DATETIME"))
+            changed = True
         await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_purpose ON invoices (purpose)"))
         await connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_invoices_wallet_target ON invoices (wallet_target_merchant_id)")
@@ -74,6 +85,7 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
         await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_store_id ON invoices (store_id)"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_api_key_id ON invoices (api_key_id)"))
         await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_client_order_id ON invoices (client_order_id)"))
+        await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_invoices_callback_status ON invoices (callback_status)"))
         await connection.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_client_order "

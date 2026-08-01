@@ -21,6 +21,7 @@
       </a>
       <nav class="nav-links" aria-label="منوی اصلی">
         <a href="#how">نحوه کار</a>
+        <a href="#live">آمار زنده</a>
         <a href="#features">امکانات</a>
         <a href="#developers">توسعه‌دهندگان</a>
         <a href="#security">امنیت</a>
@@ -36,7 +37,7 @@
       <div class="hero-glow hero-glow-two"></div>
       <div class="landing-container hero-layout">
         <div class="hero-copy">
-          <div class="live-pill"><i></i> سامانه عملیاتی و آماده پردازش</div>
+          <div class="live-pill tone-{{ live_data.service.tone }}" data-live-tone="service"><i></i><span data-live="service-label">{{ live_data.service.label }}</span></div>
           <h1>پرداخت مستقیم،<br><span>با تأیید خودکار.</span></h1>
           <p class="hero-lead">بلوپی فاکتور پرداخت می‌سازد، مبلغ یکتا تولید می‌کند، پیامک بانکی را تطبیق می‌دهد و نتیجه قطعی را همان لحظه به سایت یا ربات شما برمی‌گرداند.</p>
           <div class="hero-buttons">
@@ -50,31 +51,32 @@
           </div>
         </div>
 
-        <div class="hero-visual" aria-label="نمایش جریان پرداخت بلوپی">
+        <div class="hero-visual" aria-label="نمایش زنده و ناشناس آخرین تراکنش بلوپی">
           <div class="visual-orbit orbit-one"></div>
           <div class="visual-orbit orbit-two"></div>
-          <div class="payment-preview">
+          <div class="payment-preview" data-live-tone="invoice">
             <div class="preview-top">
               <span class="preview-logo">B</span>
-              <div><b>فاکتور پرداخت</b><small>بلوپی امن</small></div>
-              <span class="preview-status">در انتظار پرداخت</span>
+              <div><b>آخرین فعالیت سامانه</b><small>داده زنده و بدون اطلاعات هویتی</small></div>
+              <span class="preview-status tone-{{ live_data.invoice.status_tone }}" data-live="invoice-status" data-live-tone="invoice-status">{{ live_data.invoice.status_label }}</span>
             </div>
-            <div class="preview-amount"><small>مبلغ دقیق</small><strong>۱۰۰٬۹۴۴</strong><span>تومان</span></div>
+            <div class="preview-amount"><small>مبلغ دقیق آخرین فاکتور</small><strong data-live="invoice-amount">{{ live_data.invoice.amount_display }}</strong><span>تومان</span></div>
             <div class="preview-card">
-              <div><span>کارت مقصد</span><b>بلوبانک •••• ۱۴۷۶</b></div>
-              <div><span>کد تطبیق</span><b>+۹۴۴ تومان</b></div>
+              <div><span>کارت مقصد</span><b><span data-live="invoice-bank">{{ live_data.invoice.bank_label }}</span> <span data-live="invoice-card">{{ live_data.invoice.card_mask }}</span></b></div>
+              <div><span>کد تطبیق</span><b data-live="invoice-unique">{{ live_data.invoice.unique_display }}</b></div>
             </div>
-            <div class="preview-progress"><i></i><span>در انتظار پیامک واریز بانک…</span></div>
+            <div class="preview-progress tone-{{ live_data.invoice.status_tone }}" data-live-tone="invoice-progress"><i></i><span data-live="invoice-progress">{{ live_data.invoice.progress }}</span></div>
+            <div class="live-updated">به‌روزرسانی خودکار از دیتابیس ربات • <span data-live="updated">همین حالا</span></div>
           </div>
-          <div class="floating-event event-one"><i>✓</i><span><b>پرداخت تأیید شد</b><small>تطبیق دقیق مبلغ و بانک</small></span></div>
-          <div class="floating-event event-two"><i>↗</i><span><b>Callback ارسال شد</b><small>HTTP 200 • امضای معتبر</small></span></div>
+          <div class="floating-event event-one tone-{{ live_data.invoice.status_tone }}" data-live-tone="payment-event"><i data-live="payment-icon">{{ live_data.invoice.event_icon }}</i><span><b data-live="payment-title">{{ live_data.invoice.event_title }}</b><small data-live="payment-subtitle">{{ live_data.invoice.event_subtitle }}</small></span></div>
+          <div class="floating-event event-two tone-{{ live_data.callback.tone }}" data-live-tone="callback-event"><i data-live="callback-icon">{{ live_data.callback.icon }}</i><span><b data-live="callback-title">{{ live_data.callback.title }}</b><small data-live="callback-subtitle">{{ live_data.callback.subtitle }}</small></span></div>
         </div>
       </div>
       <div class="landing-container metric-strip">
-        <div><strong>۱–۹۹۹</strong><span>تومان کد تطبیق یکتا</span></div>
-        <div><strong>۱ API</strong><span>اختصاصی برای هر فروشگاه</span></div>
-        <div><strong>۳ تلاش</strong><span>برای تحویل Callback</span></div>
-        <div><strong>۳۴+</strong><span>الگوی بانکی قابل تشخیص</span></div>
+        <div><strong data-live="metric-paid">{{ live_data.metrics.paid_invoices_display }}</strong><span>پرداخت تأییدشده واقعی</span></div>
+        <div><strong data-live="metric-stores">{{ live_data.metrics.active_stores_display }}</strong><span>فروشگاه فعال متصل</span></div>
+        <div><strong data-live="metric-merchants">{{ live_data.metrics.active_merchants_display }}</strong><span>پذیرنده فعال</span></div>
+        <div><strong><span data-live="metric-banks">{{ live_data.metrics.supported_banks_display }}</span>+</strong><span>الگوی بانکی قابل تشخیص</span></div>
       </div>
     </section>
 
@@ -113,18 +115,37 @@
       </div>
     </section>
 
-    <section class="landing-section section-muted" id="features">
+    <section class="landing-section section-muted" id="live">
+      <div class="landing-container">
+        <div class="section-kicker">آمار مستقیم از ربات</div>
+        <div class="section-heading split-heading">
+          <div><h2>سایت و ربات، یک منبع داده مشترک دارند</h2></div>
+          <p>اعداد این بخش از همان دیتابیسی خوانده می‌شوند که فاکتورها، فروشگاه‌ها و پیامک‌های بانکی ربات را مدیریت می‌کند؛ بدون واردکردن اطلاعات نمونه یا دستی.</p>
+        </div>
+        <div class="live-stat-grid">
+          <article><span>پرداخت ۲۴ ساعت اخیر</span><strong data-live="metric-paid-24h">{{ live_data.metrics.paid_last_24h_display }}</strong><small>تراکنش تأییدشده</small></article>
+          <article><span>فاکتورهای در انتظار</span><strong data-live="metric-pending">{{ live_data.metrics.pending_invoices_display }}</strong><small>در انتظار پیامک بانکی</small></article>
+          <article><span>پیامک‌های تطبیق‌شده</span><strong data-live="metric-sms">{{ live_data.metrics.matched_sms_display }}</strong><small>پردازش قطعی و بدون تکرار</small></article>
+          <article><span>کارت‌های مقصد فعال</span><strong data-live="metric-cards">{{ live_data.metrics.active_cards_display }}</strong><small>ثبت‌شده توسط پذیرندگان</small></article>
+          <article><span>APIهای فعال</span><strong data-live="metric-api">{{ live_data.metrics.active_api_keys_display }}</strong><small>یک کلید برای هر فروشگاه</small></article>
+          <article><span>Callbackهای متصل</span><strong data-live="metric-callback">{{ live_data.metrics.callback_stores_display }}</strong><small>مسیر اختصاصی فروشگاه‌ها</small></article>
+        </div>
+        <p class="privacy-note">اطلاعات هویتی پذیرنده، شناسه سفارش، شماره کامل کارت، API Key، Callback URL و توکن وبهوک هرگز در خروجی عمومی سایت قرار نمی‌گیرند.</p>
+      </div>
+    </section>
+
+    <section class="landing-section" id="features">
       <div class="landing-container">
         <div class="section-kicker">امکانات محصول</div>
         <div class="section-heading"><h2>ابزارهایی که یک پرداخت‌یار واقعی نیاز دارد</h2><p>تمام کنترل‌های مالی و فنی از داخل ربات مدیریت می‌شوند و هر فروشگاه اتصال مستقل خودش را دارد.</p></div>
         <div class="product-grid">
-          <article class="product-card featured"><span>🏪</span><h3>چند فروشگاه، اتصال‌های مستقل</h3><p>برای هر فروشگاه یک API Key و Callback مستقل تعریف کنید و گزارش‌ها و سفارش‌ها را جدا نگه دارید.</p><b>مدیریت متمرکز، دسترسی تفکیک‌شده</b></article>
-          <article class="product-card"><span>🧾</span><h3>فاکتور دستی و API</h3><p>بدون کدنویسی از ربات لینک بسازید یا ساخت، استعلام و لغو فاکتور را از API انجام دهید.</p></article>
-          <article class="product-card"><span>🎯</span><h3>مبلغ یکتای هوشمند</h3><p>برای پرداخت‌های هم‌زمان، کد تطبیق ۱ تا ۹۹۹ تومان به مبلغ اضافه می‌شود تا خطای تأیید کاهش پیدا کند.</p></article>
-          <article class="product-card"><span>💼</span><h3>کیف پول و کارمزد منعطف</h3><p>کارمزد سراسری یا اختصاصی تعیین کنید؛ مشتری، پذیرنده، تقسیم مساوی یا سرویس رایگان.</p></article>
-          <article class="product-card"><span>📱</span><h3>تشخیص هوشمند پیامک</h3><p>پیام‌های غیرپرداختی، رمز پویا و برداشت بی‌صدا حذف می‌شوند و فقط واریزهای مرتبط بررسی می‌شوند.</p></article>
-          <article class="product-card"><span>🛡️</span><h3>کنترل تکرار و خطا</h3><p>هر پیامک اثرانگشت یکتا دارد تا یک پرداخت دوباره تأیید، Callback یا مشمول کارمزد نشود.</p></article>
-          <article class="product-card"><span>⚙️</span><h3>مدیریت کامل از تلگرام</h3><p>کارت‌ها، فروشگاه‌ها، API، Callback، کیف پول، کارمزد، کاربران و ظاهر ربات در یک پنل.</p></article>
+          <article class="product-card featured"><span>🏪</span><h3>چند فروشگاه، اتصال‌های مستقل</h3><p>برای هر فروشگاه یک API Key و Callback مستقل تعریف کنید و گزارش‌ها و سفارش‌ها را جدا نگه دارید.</p><b><span data-live="metric-stores-inline">{{ live_data.metrics.active_stores_display }}</span> فروشگاه فعال • <span data-live="metric-api-inline">{{ live_data.metrics.active_api_keys_display }}</span> API متصل</b></article>
+          <article class="product-card"><span>🧾</span><h3>فاکتور دستی و API</h3><p>بدون کدنویسی از ربات لینک بسازید یا ساخت، استعلام و لغو فاکتور را از API انجام دهید.</p><b><span data-live="metric-paid-inline">{{ live_data.metrics.paid_invoices_display }}</span> پرداخت قطعی</b></article>
+          <article class="product-card"><span>🎯</span><h3>مبلغ یکتای هوشمند</h3><p>برای پرداخت‌های هم‌زمان، کد تطبیق ۱ تا ۹۹۹ تومان به مبلغ اضافه می‌شود تا خطای تأیید کاهش پیدا کند.</p><b>بازه واقعی ۱ تا ۹۹۹ تومان</b></article>
+          <article class="product-card"><span>💼</span><h3>کیف پول و کارمزد منعطف</h3><p>کارمزد سراسری یا اختصاصی تعیین کنید؛ مشتری، پذیرنده، تقسیم مساوی یا سرویس رایگان.</p><b><span data-live="metric-merchants-inline">{{ live_data.metrics.active_merchants_display }}</span> پذیرنده فعال</b></article>
+          <article class="product-card"><span>📱</span><h3>تشخیص هوشمند پیامک</h3><p>پیام‌های غیرپرداختی، رمز پویا و برداشت بی‌صدا حذف می‌شوند و فقط واریزهای مرتبط بررسی می‌شوند.</p><b><span data-live="metric-sms-inline">{{ live_data.metrics.matched_sms_display }}</span> پیامک تطبیق‌شده</b></article>
+          <article class="product-card"><span>🛡️</span><h3>کنترل تکرار و خطا</h3><p>هر پیامک اثرانگشت یکتا دارد تا یک پرداخت دوباره تأیید، Callback یا مشمول کارمزد نشود.</p><b>Idempotency فعال در پردازش پیامک</b></article>
+          <article class="product-card"><span>⚙️</span><h3>مدیریت کامل از تلگرام</h3><p>کارت‌ها، فروشگاه‌ها، API، Callback، کیف پول، کارمزد، کاربران و ظاهر ربات در یک پنل.</p><b><span data-live="metric-cards-inline">{{ live_data.metrics.active_cards_display }}</span> کارت مقصد فعال</b></article>
         </div>
       </div>
     </section>
@@ -138,7 +159,7 @@
           <ul class="developer-list">
             <li>ساخت، استعلام و لغو فاکتور</li>
             <li>یک API Key مستقل برای هر فروشگاه</li>
-            <li>Callback جداگانه با Secret اختصاصی</li>
+            <li>Callback جداگانه با Secret اختصاصی؛ <span data-live="metric-callback-inline">{{ live_data.metrics.callback_stores_display }}</span> فروشگاه متصل</li>
             <li>شناسه درخواست و پاسخ خطای استاندارد</li>
           </ul>
           <a class="text-link" href="{{ docs_url }}">ورود به مستندات کامل API ←</a>
@@ -193,7 +214,7 @@ const invoice = await response.json();</code></pre>
       <div class="landing-container security-layout">
         <div class="security-core">
           <div class="security-shield">✓</div>
-          <div><span>لایه اعتماد بلوپی</span><h2>امنیت از قرارداد API تا پیامک بانک</h2><p>داده‌های حساس کارت خریدار دریافت نمی‌شوند؛ دسترسی فروشگاه‌ها تفکیک شده و نتیجه پرداخت با مکانیزم‌های ضدتکرار و امضای Callback محافظت می‌شود.</p></div>
+          <div><span data-live="security-live-label">{{ live_data.service.label }}</span><h2>امنیت از قرارداد API تا پیامک بانک</h2><p>داده‌های حساس کارت خریدار دریافت نمی‌شوند؛ دسترسی فروشگاه‌ها تفکیک شده و نتیجه پرداخت با مکانیزم‌های ضدتکرار و امضای Callback محافظت می‌شود.</p></div>
         </div>
         <div class="security-grid">
           <div><b>HTTPS</b><span>ارتباط رمزنگاری‌شده</span></div>
@@ -229,9 +250,10 @@ const invoice = await response.json();</code></pre>
   <footer class="landing-footer">
     <div class="landing-container footer-grid">
       <div class="footer-brand"><span class="brand-mark">B</span><div><b>بلوپی</b><p>زیرساخت پرداخت مستقیم با تأیید هوشمند پیامک بانکی.</p></div></div>
-      <div><b>محصول</b><a href="#how">نحوه کار</a><a href="#features">امکانات</a><a href="{{ docs_url }}">مستندات API</a></div>
+      <div><b>محصول</b><a href="#how">نحوه کار</a><a href="#live">آمار زنده</a>
+        <a href="#features">امکانات</a><a href="{{ docs_url }}">مستندات API</a></div>
       <div><b>دسترسی</b><a href="{{ telegram_url }}">ربات تلگرام</a><a href="{{ health_url }}">وضعیت سرویس</a><a href="#security">امنیت</a></div>
-      <div><b>نسخه</b><span>BluePay {{ app_version }}</span><span>API v1</span></div>
+      <div><b>نسخه</b><span>BluePay {{ app_version }}</span><span>API v1</span><span data-live="footer-live">داده زنده متصل</span></div>
     </div>
     <div class="landing-container footer-bottom"><span>© ۱۴۰۵ بلوپی — تمامی حقوق محفوظ است.</span><span>طراحی‌شده برای فروشگاه‌ها و ربات‌های فارسی</span></div>
   </footer>
@@ -244,6 +266,91 @@ const invoice = await response.json();</code></pre>
         document.querySelectorAll('[data-code-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.codePanel === name));
       });
     });
+
+    const liveUrl = {{ live_url | tojson }};
+    const toneClasses = ['tone-success', 'tone-warning', 'tone-danger', 'tone-info', 'tone-muted'];
+    const liveElements = (name) => document.querySelectorAll(`[data-live="${name}"]`);
+    const setLiveText = (name, value) => liveElements(name).forEach((item) => { item.textContent = value ?? '—'; });
+    const setLiveTone = (name, tone) => document.querySelectorAll(`[data-live-tone="${name}"]`).forEach((item) => {
+      item.classList.remove(...toneClasses);
+      item.classList.add(`tone-${tone || 'muted'}`);
+    });
+    const relativeUpdate = (isoValue) => {
+      if (!isoValue) return 'همین حالا';
+      const seconds = Math.max(0, Math.floor((Date.now() - new Date(isoValue).getTime()) / 1000));
+      if (seconds < 15) return 'همین حالا';
+      if (seconds < 60) return `${seconds.toLocaleString('fa-IR')} ثانیه پیش`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes.toLocaleString('fa-IR')} دقیقه پیش`;
+      return new Date(isoValue).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' });
+    };
+
+    function applyLiveData(data) {
+      const invoice = data.invoice || {};
+      const callback = data.callback || {};
+      const metrics = data.metrics || {};
+      const service = data.service || {};
+
+      setLiveText('service-label', service.label);
+      setLiveText('security-live-label', service.label);
+      setLiveText('footer-live', service.operational ? 'داده زنده متصل' : 'داده زنده نیازمند بررسی');
+      setLiveTone('service', service.tone);
+
+      setLiveText('invoice-status', invoice.status_label);
+      setLiveText('invoice-amount', invoice.amount_display);
+      setLiveText('invoice-bank', invoice.bank_label);
+      setLiveText('invoice-card', invoice.card_mask);
+      setLiveText('invoice-unique', invoice.unique_display);
+      setLiveText('invoice-progress', invoice.progress);
+      setLiveText('payment-icon', invoice.event_icon);
+      setLiveText('payment-title', invoice.event_title);
+      setLiveText('payment-subtitle', invoice.event_subtitle);
+      setLiveText('callback-icon', callback.icon);
+      setLiveText('callback-title', callback.title);
+      setLiveText('callback-subtitle', callback.subtitle);
+      setLiveText('updated', relativeUpdate(invoice.updated_at || service.generated_at));
+      setLiveTone('invoice-status', invoice.status_tone);
+      setLiveTone('invoice-progress', invoice.status_tone);
+      setLiveTone('payment-event', invoice.status_tone);
+      setLiveTone('callback-event', callback.tone);
+
+      const map = {
+        'metric-paid': metrics.paid_invoices_display,
+        'metric-paid-inline': metrics.paid_invoices_display,
+        'metric-paid-24h': metrics.paid_last_24h_display,
+        'metric-pending': metrics.pending_invoices_display,
+        'metric-stores': metrics.active_stores_display,
+        'metric-stores-inline': metrics.active_stores_display,
+        'metric-merchants': metrics.active_merchants_display,
+        'metric-merchants-inline': metrics.active_merchants_display,
+        'metric-api': metrics.active_api_keys_display,
+        'metric-api-inline': metrics.active_api_keys_display,
+        'metric-cards': metrics.active_cards_display,
+        'metric-cards-inline': metrics.active_cards_display,
+        'metric-sms': metrics.matched_sms_display,
+        'metric-sms-inline': metrics.matched_sms_display,
+        'metric-callback': metrics.callback_stores_display,
+        'metric-callback-inline': metrics.callback_stores_display,
+        'metric-banks': metrics.supported_banks_display,
+      };
+      Object.entries(map).forEach(([name, value]) => setLiveText(name, value));
+    }
+
+    async function refreshLiveData() {
+      try {
+        const response = await fetch(liveUrl, { cache: 'no-store', headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        applyLiveData(await response.json());
+      } catch (error) {
+        setLiveText('footer-live', 'آخرین داده ذخیره‌شده');
+      }
+    }
+
+    refreshLiveData();
+    const liveTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshLiveData();
+    }, 10000);
+    window.addEventListener('pagehide', () => clearInterval(liveTimer), { once: true });
   </script>
 </body>
 </html>

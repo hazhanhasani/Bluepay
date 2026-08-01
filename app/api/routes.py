@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -30,6 +30,7 @@ from app.services.integration_service import (
     merchant_sms_webhook_url,
 )
 from app.services.invoice_service import create_invoice, get_invoice_by_token, release_invoice_reservation
+from app.services.public_dashboard_service import build_public_dashboard
 from app.services.settings_service import get_setting
 from app.services.sms_service import ingest_sms
 from app.services.sms_notification_service import send_invalid_sms_payload_notice, send_sms_processing_notice
@@ -91,7 +92,8 @@ async def health():
 
 
 @router.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home(request: Request, session: AsyncSession = Depends(get_session)):
+    live_data = await build_public_dashboard(session)
     return templates.TemplateResponse(
         "home.html",
         {
@@ -100,9 +102,23 @@ async def home(request: Request):
             "docs_url": f"{settings.base_url}/developers",
             "telegram_url": f"{settings.base_url}/telegram",
             "health_url": f"{settings.base_url}/health",
+            "live_url": f"{settings.base_url}/public/live",
+            "live_data": live_data,
             "app_version": APP_VERSION,
         },
-        headers={"Cache-Control": "public, max-age=300"},
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@router.get("/public/live", include_in_schema=False)
+async def public_live_dashboard(session: AsyncSession = Depends(get_session)):
+    payload = await build_public_dashboard(session)
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
