@@ -32,6 +32,7 @@ def main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔗 اتصال و API", callback_data="connect"),
             InlineKeyboardButton(text="👤 حساب پذیرنده", callback_data="account"),
         ],
+        [InlineKeyboardButton(text="🧩 مرکز آپشن‌ها و اتوماسیون", callback_data="options")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="👑 مرکز مدیریت سامانه", callback_data="admin:panel")])

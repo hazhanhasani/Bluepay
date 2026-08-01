@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101f">
+  <title>{{ link.title }} | بلوپی</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+</head>
+<body>
+<main class="shell compact option-public-shell">
+  <div class="brandbar">
+    <div class="brand"><div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></div><div class="brand-copy"><strong>{{ merchant.name if merchant else 'بلوپی' }}</strong><span>لینک پرداخت رسمی</span></div></div>
+    {% if verification and verification.trust_badge_enabled %}<span class="badge success">✓ پذیرنده تأییدشده</span>{% else %}<span class="badge">🔒 پرداخت امن</span>{% endif %}
+  </div>
+  <section class="card receipt option-public-card" style="--brand:{{ branding.get('primary_color', '#2f6df6') }}">
+    {% if product and product.image_url %}<img class="product-cover" src="{{ product.image_url }}" alt="{{ product.name }}">{% endif %}
+    <span class="badge">{{ variant.get('badge', 'درگاه مستقیم بلوپی') }}</span>
+    <h1>{{ variant.get('headline', link.title) }}</h1>
+    <p>{{ link.description or (product.description if product else 'مبلغ را بررسی و پرداخت را آغاز کنید.') }}</p>
+    {% if error %}<div class="notice danger">{{ error }}</div>{% endif %}
+    <form method="post" class="option-form">
+      {% if link.fixed_amount_rial or product %}
+      <div class="amount">{{ "{:,}".format(((link.fixed_amount_rial or product.price_rial) // 10)) }} <small>تومان</small></div>
+      {% else %}
+      <label>مبلغ پرداخت <input name="amount_toman" inputmode="numeric" required placeholder="مثلاً ۵۰۰۰۰۰"></label>
+      {% endif %}
+      {% if link.collect_name %}<label>نام پرداخت‌کننده <input name="customer_name" maxlength="160" required placeholder="نام و نام خانوادگی"></label>{% endif %}
+      {% if link.collect_phone %}<label>شماره تماس <input name="phone" inputmode="tel" maxlength="20" required placeholder="09xxxxxxxxx"></label>{% endif %}
+      {% if link.collect_order_id %}<label>شناسه سفارش <input name="order_id" maxlength="120" required placeholder="شماره سفارش شما"></label>{% endif %}
+      <div class="option-form-grid"><label>کد تخفیف <input name="discount_code" maxlength="64" placeholder="اختیاری"></label><label>کد معرف <input name="affiliate_code" maxlength="64" value="{{ request.query_params.get('affiliate', '') }}" placeholder="اختیاری"></label></div>
+      <button class="primary-button option-pay-button" type="submit">ساخت فاکتور و ادامه پرداخت</button>
+    </form>
+    <div class="security-strip">کد امنیتی پذیرنده: <b>{{ (merchant.id|string) if not branding.get('anti_phishing_code') else branding.get('anti_phishing_code') }}</b> • اطلاعات بانکی شما ذخیره نمی‌شود</div>
+  </section>
+</main>
+</body>
+</html>

@@ -15,7 +15,7 @@
       <div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-full.png" alt="BluePay"></div>
       <div class="brand-copy"><strong>بلوپی</strong><span>پرداخت مستقیم و امن</span></div>
     </div>
-    <span class="badge">🔒 اتصال امن</span>
+    {% if verification and verification.trust_badge_enabled %}<span class="badge success">✓ پذیرنده تأییدشده</span>{% else %}<span class="badge">🔒 اتصال امن</span>{% endif %}
   </div>
 
   <div class="payment-steps" aria-label="مراحل پرداخت">
@@ -43,6 +43,10 @@
       <div><span>{% if invoice.purpose == 'wallet_topup' %}اعتبار انتخابی{% else %}مبلغ سفارش{% endif %}</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
       {% if invoice.purpose != 'wallet_topup' %}<div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>{% endif %}
       <div class="highlight"><span>کد تطبیق یکتا</span><b>+{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
+      {% if invoice.completion_mode == 'partial' %}
+      <div><span>پرداخت‌شده تا این لحظه</span><b id="receivedAmount">{{ "{:,}".format(toman(invoice.received_amount_rial or 0)) }} تومان</b></div>
+      <div class="highlight"><span>مانده قابل پرداخت</span><b id="remainingAmount">{{ "{:,}".format(toman(invoice.payable_amount_rial - (invoice.received_amount_rial or 0))) }} تومان</b></div>
+      {% endif %}
       <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
     </div>
     <div class="timer">⏱ زمان باقی‌مانده: <b id="countdown">--:--</b></div>
@@ -69,7 +73,7 @@
     </ul>
     <div id="networkState" class="network-state online">اتصال برقرار است</div>
     <div class="loader-line"><span></span> در حال پایش وضعیت تراکنش</div>
-    <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود</div>
+    <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود{% if option_profile and option_profile.anti_phishing_code %} • کد امنیتی: <b>{{ option_profile.anti_phishing_code }}</b>{% endif %}</div>
   </section>
 </main>
 <script>
@@ -95,6 +99,10 @@ async function checkStatus(){
     const data=await response.json();
     statusFailures=0; renderNetworkState(true,'اتصال برقرار است؛ وضعیت پرداخت در حال پایش است');
     if(['paid','expired','cancelled'].includes(data.status)) location.reload();
+    const received=document.getElementById('receivedAmount');
+    const remaining=document.getElementById('remainingAmount');
+    if(received) received.textContent=new Intl.NumberFormat('fa-IR').format(Math.floor((data.received_amount_rial||0)/10))+' تومان';
+    if(remaining) remaining.textContent=new Intl.NumberFormat('fa-IR').format(Math.floor((data.remaining_amount_rial||0)/10))+' تومان';
   }catch(e){
     statusFailures++;
     renderNetworkState(false, statusFailures>2?'اتصال ناپایدار است؛ صفحه را نبندید':'در حال اتصال مجدد…');

@@ -13,7 +13,7 @@
 <header class="portal-header">
   <div class="portal-wrap portal-header-inner">
     <div class="brand"><span class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span><span><b>پنل پذیرنده</b><small>{{ merchant.name }}</small></span></div>
-    <span class="badge success">{{ role_label(portal_role) }} · حساب فعال</span>
+    <div class="portal-header-actions">{% if portal_owner %}<a class="ghost-link" href="{{ portal_base }}/options">مرکز آپشن‌ها</a><a class="ghost-link" href="{{ portal_base }}/pos">صندوق فروشگاهی</a>{% endif %}<span class="badge success">{{ role_label(portal_role) }} · حساب فعال</span></div>
   </div>
 </header>
 <main class="portal-wrap portal-main">

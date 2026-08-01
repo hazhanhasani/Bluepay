@@ -11,8 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.models import Invoice, SmsTransaction
+from app.models import Invoice, SmsParserTemplate, SmsTransaction
 from app.parsers import normalize_bank_code, parse_bank_sms
+from app.parsers.base import ParsedSms, digits_only, normalize_text
 from app.services.invoice_service import confirm_invoice_paid
 
 
@@ -103,6 +104,64 @@ def should_surface_unconfirmed_sms(message: str, bank_code: str | None, amount_r
     return has_credit_intent and (has_currency_amount or known_bank)
 
 
+
+
+async def _dynamic_template_parse(
+    session: AsyncSession,
+    *,
+    merchant_id: int | None,
+    sender: str,
+    message: str,
+) -> ParsedSms | None:
+    templates = list((await session.scalars(
+        select(SmsParserTemplate).where(
+            SmsParserTemplate.is_active.is_(True),
+            *([SmsParserTemplate.merchant_id.in_([None, merchant_id])] if merchant_id is not None else [SmsParserTemplate.merchant_id.is_(None)]),
+        ).order_by(SmsParserTemplate.merchant_id.desc(), SmsParserTemplate.confidence.desc(), SmsParserTemplate.id.asc())
+    )).all())
+    text = normalize_text(message)
+    for template in templates:
+        try:
+            if template.sender_pattern and not re.search(template.sender_pattern[:500], sender, flags=re.IGNORECASE):
+                continue
+            if template.credit_pattern and not re.search(template.credit_pattern[:500], text, flags=re.IGNORECASE):
+                continue
+            amount_match = re.search(template.amount_pattern[:500], text, flags=re.IGNORECASE)
+            if not amount_match:
+                continue
+            raw_amount = amount_match.group(1) if amount_match.groups() else amount_match.group(0)
+            amount_digits = digits_only(raw_amount)
+            if not amount_digits:
+                continue
+            amount_rial = int(amount_digits)
+            unit_text = amount_match.group(2) if len(amount_match.groups()) >= 2 else ""
+            if "تومان" in (unit_text or ""):
+                amount_rial *= 10
+            card_last4 = None
+            if template.card_pattern:
+                card_match = re.search(template.card_pattern[:500], text, flags=re.IGNORECASE)
+                if card_match:
+                    card_last4 = digits_only(card_match.group(1) if card_match.groups() else card_match.group(0))[-4:] or None
+            reference = None
+            if template.reference_pattern:
+                ref_match = re.search(template.reference_pattern[:500], text, flags=re.IGNORECASE)
+                if ref_match:
+                    reference = (ref_match.group(1) if ref_match.groups() else ref_match.group(0))[:120]
+            return ParsedSms(
+                bank_code=template.bank_code,
+                is_credit=True,
+                amount_rial=amount_rial,
+                card_last4=card_last4,
+                reference_number=reference,
+                transaction_at=datetime.now(timezone.utc),
+                confidence=max(65, min(100, template.confidence)),
+                reason=f"dynamic_template:{template.id}",
+            )
+        except (re.error, ValueError, IndexError):
+            continue
+    return None
+
+
 @dataclass(slots=True)
 class SmsIngestDiagnostic:
     result: str
@@ -122,6 +181,11 @@ async def ingest_sms(
     bank_hint: str | None = None,
 ) -> tuple[SmsTransaction, Invoice | None, SmsIngestDiagnostic]:
     parsed = parse_bank_sms(sender, message, bank_hint=bank_hint)
+    dynamic = await _dynamic_template_parse(
+        session, merchant_id=merchant_id, sender=sender, message=message
+    )
+    if dynamic and (not parsed.is_credit or not parsed.amount_rial or dynamic.confidence > parsed.confidence):
+        parsed = dynamic
     fingerprint = sms_fingerprint(
         message,
         merchant_id=merchant_id,
@@ -249,12 +313,74 @@ async def ingest_sms(
     )
 
     if not amount_candidates:
-        sms.status = "unmatched"
+        # Optional multi-part payment mode. To avoid unsafe matching, an SMS is
+        # applied only when exactly one active partial-enabled invoice matches
+        # merchant, bank/card and device source.
+        partial_candidates = list(
+            (
+                await session.scalars(
+                    select(Invoice)
+                    .where(
+                        Invoice.status.in_(["pending", "partially_paid"]),
+                        Invoice.completion_mode == "partial",
+                        Invoice.expires_at >= now,
+                        Invoice.received_amount_rial < Invoice.payable_amount_rial,
+                        *([Invoice.merchant_id == merchant_id] if merchant_id is not None else []),
+                    )
+                    .options(joinedload(Invoice.card), joinedload(Invoice.merchant))
+                )
+            ).all()
+        )
+        parsed_bank = normalize_bank_code(parsed.bank_code)
+        incoming_source = normalize_source_id(device_id)
+        eligible: list[Invoice] = []
+        for candidate in partial_candidates:
+            remaining = candidate.payable_amount_rial - int(candidate.received_amount_rial or 0)
+            # Overpayment up to 10% or 100,000 rial is accepted and flagged.
+            allowance = max(100_000, remaining // 10)
+            if parsed.amount_rial > remaining + allowance:
+                continue
+            card_bank = normalize_bank_code(candidate.card.bank_code)
+            if parsed_bank != "generic" and card_bank != parsed_bank:
+                continue
+            if parsed.card_last4 and candidate.card.card_last4 != parsed.card_last4:
+                continue
+            card_source = normalize_source_id(candidate.card.sms_source_id)
+            if incoming_source and card_source and incoming_source != card_source:
+                continue
+            eligible.append(candidate)
+        if len(eligible) == 1:
+            from app.services.options_service import record_partial_payment
+            partial, invoice = await record_partial_payment(
+                session,
+                eligible[0],
+                amount_rial=parsed.amount_rial,
+                sms_id=sms.id,
+                source="bank_sms",
+                reference_number=parsed.reference_number,
+                note="تطبیق خودکار پرداخت چندتکه",
+            )
+            sms.status = "matched" if invoice.status == "paid" else "partial_matched"
+            sms.matched_invoice_id = invoice.id
+            return sms, invoice, SmsIngestDiagnostic(
+                "matched" if invoice.status == "paid" else "partial_matched",
+                (
+                    "فاکتور با آخرین پرداخت تکمیل و تأیید شد"
+                    if invoice.status == "paid"
+                    else f"پرداخت چندتکه ثبت شد؛ مانده {max(0, invoice.payable_amount_rial - invoice.received_amount_rial)} ریال"
+                ),
+                source_candidate_count=1,
+            )
+        sms.status = "review" if len(eligible) > 1 else "unmatched"
         return sms, None, SmsIngestDiagnostic(
-            "no_amount_candidate",
-            f"فاکتور فعال با مبلغ دقیق {parsed.amount_rial} ریال پیدا نشد",
-            amount_candidate_count=0,
-            notify=previous_status != "unmatched",
+            "partial_ambiguous" if len(eligible) > 1 else "no_amount_candidate",
+            (
+                "چند فاکتور چندتکه با این پیامک سازگار است؛ بررسی دستی لازم است"
+                if len(eligible) > 1
+                else f"فاکتور فعال با مبلغ دقیق {parsed.amount_rial} ریال پیدا نشد"
+            ),
+            amount_candidate_count=len(eligible),
+            notify=previous_status not in {"unmatched", "review"},
         )
 
     parsed_bank = normalize_bank_code(parsed.bank_code)

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>صندوق فروشگاهی | بلوپی</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+</head>
+<body>
+<main class="shell compact pos-shell">
+  <div class="brandbar"><div class="brand"><div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></div><div class="brand-copy"><strong>{{ merchant.name }}</strong><span>صندوق فروشگاهی بلوپی</span></div></div><a class="badge" href="/portal/{{ merchant.id }}/{{ token }}/options">مرکز آپشن‌ها</a></div>
+  {% if error %}<div class="notice danger">{{ error }}</div>{% endif %}
+  <section class="card">
+    <div class="section-title"><div class="icon-box">🧾</div><div><h2>صدور فاکتور حضوری</h2><p>مبلغ را وارد کنید و QR را به مشتری نمایش دهید</p></div></div>
+    <form method="post" class="option-form">
+      <label>مبلغ تومان <input name="amount_toman" inputmode="numeric" required autofocus placeholder="مثلاً ۵۰۰۰۰۰"></label>
+      <label>شرح فروش <input name="description" value="فروش حضوری" maxlength="240"></label>
+      <label>شعبه <select name="branch_id"><option value="">بدون شعبه</option>{% for branch in branches %}<option value="{{ branch.id }}">{{ branch.name }}</option>{% endfor %}</select></label>
+      <button type="submit">ساخت فاکتور و QR</button>
+    </form>
+  </section>
+  {% if invoice %}
+  <section class="card receipt pos-result">
+    <span class="badge success">فاکتور آماده است</span>
+    <h1>{{ "{:,}".format(invoice.payable_amount_rial//10) }} تومان</h1>
+    <img class="pos-qr" src="/qr/invoice/{{ invoice.token }}.png" alt="QR پرداخت">
+    <p>مشتری QR را اسکن کند یا لینک زیر را باز کند.</p>
+    <a class="primary-button" href="{{ payment_url }}" target="_blank">بازکردن صفحه پرداخت</a>
+    <div class="security-strip"><code>{{ payment_url }}</code></div>
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

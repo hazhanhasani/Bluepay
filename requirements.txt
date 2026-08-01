@@ -12,3 +12,4 @@ python-multipart==0.0.20
 pydantic-settings==2.10.1
 sentry-sdk[fastapi]==2.35.0
 prometheus-client==0.22.1
+qrcode[pil]==8.2

@@ -1013,6 +1013,7 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
                 description=data["description"],
                 fee_mode=data["resolved_fee_mode"],
                 card_id=data["selected_card_id"],
+                source_channel="telegram_bot",
             )
             card = await session.get(BankCard, invoice.card_id)
             await session.commit()

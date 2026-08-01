@@ -38,6 +38,7 @@
       <a href="#sms-webhook">وبهوک پیامک</a>
       <a href="#banks">بانک‌های پشتیبانی‌شده</a>
       <a href="#sdks">SDKهای رسمی</a>
+      <a href="#commerce-options">آپشن‌های تجاری</a>
       <a href="#financial-reports">گزارش‌های مالی</a>
       <a href="#operations">عملیات و سلامت</a>
       <a href="#errors">خطاها و وضعیت‌ها</a>
@@ -387,6 +388,27 @@ X-BluePay-Signature: sha256=...</code><button onclick="copyPre(this)">کپی</bu
         <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکنید.</div>
       </section>
 
+
+
+      <section class="card" id="commerce-options">
+        <div class="section-title"><div class="icon-box">🧩</div><div><h2>آپشن‌های تجاری و اتوماسیون</h2><p>منابع قابل مدیریت با همان API Key فروشگاه</p></div></div>
+        <div class="status-table">
+          <div><code>products</code><span>کاتالوگ محصول، موجودی و تنظیم تحویل خودکار.</span></div>
+          <div><code>payment-links</code><span>لینک دائمی، QR، پرداخت یکجا یا چندتکه و برند اختصاصی.</span></div>
+          <div><code>customers</code><span>دفترچه مشتری، پورتال، کیف پول، امتیاز و Cashback.</span></div>
+          <div><code>invoice-templates</code><span>قالب صدور سریع و پایه فاکتورهای زمان‌بندی‌شده.</span></div>
+          <div><code>subscription-plans / subscriptions</code><span>پلن دوره‌ای و صدور خودکار فاکتور تمدید.</span></div>
+          <div><code>discount-codes / affiliates</code><span>کد تخفیف و همکاری در فروش با ثبت پورسانت.</span></div>
+          <div><code>automation-rules / connectors</code><span>Trigger، شرط و Action برای Webhook، Telegram، تحویل دیجیتال و اتصال سرویس.</span></div>
+          <div><code>support-tickets / payment-requests</code><span>پشتیبانی و ارسال درخواست پرداخت به مشتری.</span></div>
+        </div>
+        <h3>الگوی عمومی منابع</h3>
+        <pre><code>GET  {{ base_url }}/api/v1/options/{resource}
+POST {{ base_url }}/api/v1/options/{resource}
+PATCH {{ base_url }}/api/v1/options/{resource}/{id}
+DELETE {{ base_url }}/api/v1/options/{resource}/{id}</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="notice warning">Connectorهای WHMCS، Marzban، Pasarguard، WooCommerce و ابزارهای اتوماسیون به‌صورت چارچوب امن و قابل تنظیم ارائه می‌شوند. Endpoint، Header و کلید دسترسی همان سرویس باید داخل بخش احرازشده پذیرنده ثبت شود.</div>
+      </section>
 
       <section class="card" id="financial-reports">
         <div class="section-title"><div class="icon-box">📊</div><div><h2>گزارش مالی و خروجی Excel</h2><p>گزارش‌های محرمانه فقط از پنل پذیرنده یا پنل اعضای مجاز تیم</p></div></div>

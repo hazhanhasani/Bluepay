@@ -15,6 +15,7 @@
       <div><span>{% if invoice.purpose == 'wallet_topup' %}نوع عملیات{% else %}عنوان سفارش{% endif %}</span><b>{{ invoice.description or '-' }}</b></div>
       <div><span>شناسه سفارش</span><b>{{ invoice.order_id }}</b></div>
       <div><span>کد تطبیق</span><b>{{ "{:,}".format(toman(invoice.unique_amount_rial)) }} تومان</b></div>
+      {% if (invoice.received_amount_rial or 0) > invoice.payable_amount_rial %}<div><span>اضافه‌پرداخت ثبت‌شده</span><b>{{ "{:,}".format(toman((invoice.received_amount_rial or 0) - invoice.payable_amount_rial)) }} تومان</b></div>{% endif %}
       <div><span>شماره پیگیری</span><b>{{ invoice.reference_number or 'ثبت نشده' }}</b></div>
       <div><span>وضعیت نهایی</span><b>پرداخت‌شده</b></div>
     </div>

@@ -30,6 +30,16 @@ def live_paid_payload(invoice: Invoice) -> dict:
         "customer_fee_rial": invoice.customer_fee_rial,
         "unique_amount_rial": invoice.unique_amount_rial,
         "payable_amount_rial": invoice.payable_amount_rial,
+        "received_amount_rial": int(invoice.received_amount_rial or 0),
+        "completion_mode": invoice.completion_mode,
+        "source_channel": invoice.source_channel,
+        "customer_id": invoice.customer_id,
+        "payment_link_id": invoice.payment_link_id,
+        "campaign_id": invoice.campaign_id,
+        "branch_id": invoice.branch_id,
+        "discount_id": invoice.discount_id,
+        "affiliate_id": invoice.affiliate_id,
+        "subscription_id": invoice.subscription_id,
         "reference_number": invoice.reference_number,
         "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
         "store_id": invoice.store_id,
@@ -232,6 +242,24 @@ async def _deliver_event(event_id: int) -> None:
                         "next_attempt_at": event.next_attempt_at.isoformat() if event.status == "retry" else None,
                     },
                 )
+                if event.status == "failed":
+                    from app.services.options_service import create_inbox_item, trigger_automations
+                    await create_inbox_item(
+                        session,
+                        merchant_id=invoice.merchant_id,
+                        invoice_id=invoice.id,
+                        category="callback_failed",
+                        severity="high",
+                        title="Callback پس از همه تلاش‌ها ناموفق بود",
+                        detail=event.last_result,
+                    )
+                    await trigger_automations(
+                        session,
+                        merchant_id=invoice.merchant_id,
+                        trigger="callback.failed",
+                        invoice=invoice,
+                        payload={"delivery_id": event.delivery_id, "last_result": event.last_result},
+                    )
         if event.sandbox_invoice_id:
             await session.execute(
                 update(SandboxInvoice)

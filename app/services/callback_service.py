@@ -75,6 +75,8 @@ async def send_paid_callback(invoice: Invoice) -> tuple[bool, str]:
 
     if invoice.purpose != "payment":
         return True, "internal_invoice_no_callback"
+    if invoice.status != "paid":
+        return True, f"invoice_not_paid:{invoice.status}"
     async with SessionLocal() as session:
         existing = await session.scalar(
             select(CallbackEvent).where(CallbackEvent.event_key == f"live:invoice.paid:{invoice.id}")

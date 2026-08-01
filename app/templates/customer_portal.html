@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>پرتال مشتری | {{ merchant.name if merchant else 'بلوپی' }}</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+</head>
+<body class="docs-body">
+<header class="docs-topbar"><div class="docs-wrap topbar-inner"><div class="topbar-brand"><div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></div><div><span class="badge">پرتال امن مشتری</span><h1>{{ customer.name }}</h1><p>{{ merchant.name if merchant else 'بلوپی' }}</p></div></div></div></header>
+<main class="docs-wrap customer-portal-grid">
+  <section class="card"><div class="section-title"><div class="icon-box">💳</div><div><h2>کیف پول و امتیاز</h2><p>اعتبار، Cashback و باشگاه مشتریان</p></div></div>
+    <div class="status-table"><div><code>اعتبار</code><span>{{ "{:,}".format((wallet.balance_rial if wallet else 0)//10) }} تومان</span></div><div><code>امتیاز</code><span>{{ wallet.points if wallet else 0 }}</span></div><div><code>سطح</code><span>{{ wallet.tier if wallet else 'bronze' }}</span></div></div>
+  </section>
+  <section class="card"><div class="section-title"><div class="icon-box">🧾</div><div><h2>فاکتورهای من</h2><p>رسیدها و وضعیت پرداخت</p></div></div>
+    <div class="option-list">{% for invoice in invoices %}<article><div><b>{{ invoice.description or invoice.order_id }}</b><small>{{ invoice.created_at.strftime('%Y-%m-%d %H:%M') if invoice.created_at else '-' }}</small></div><div><strong>{{ "{:,}".format(invoice.payable_amount_rial//10) }} تومان</strong><span class="badge {{ 'success' if invoice.status == 'paid' else 'pending' }}">{{ invoice.status }}</span></div>{% if invoice.status == 'pending' %}<a class="ghost-link" href="/pay/{{ invoice.token }}">ادامه پرداخت</a>{% else %}<a class="ghost-link" href="/pay/{{ invoice.token }}">مشاهده رسید</a>{% endif %}</article>{% else %}<p class="empty-state">هنوز فاکتوری ثبت نشده است.</p>{% endfor %}</div>
+  </section>
+  <section class="card"><div class="section-title"><div class="icon-box">↩️</div><div><h2>بازپرداخت‌ها</h2><p>پیگیری درخواست‌های برگشت وجه</p></div></div>
+    <div class="option-list">{% for refund in refunds %}<article><div><b>{{ refund.reason }}</b><small>#{{ refund.id }}</small></div><div><strong>{{ "{:,}".format(refund.amount_rial//10) }} تومان</strong><span class="badge">{{ refund.status }}</span></div></article>{% else %}<p class="empty-state">درخواست بازپرداختی وجود ندارد.</p>{% endfor %}</div>
+  </section>
+  <section class="card"><div class="section-title"><div class="icon-box">🔄</div><div><h2>اشتراک‌ها</h2><p>تمدیدها و فاکتورهای دوره‌ای</p></div></div><div class="option-list">{% for item in subscriptions %}<article><div><b>اشتراک #{{ item.id }}</b><small>دوره {{ item.current_cycle }}</small></div><div><span class="badge">{{ item.status }}</span><small>{{ item.next_invoice_at.strftime('%Y-%m-%d') if item.next_invoice_at else '-' }}</small></div></article>{% else %}<p class="empty-state">اشتراک فعالی وجود ندارد.</p>{% endfor %}</div></section>
+  <section class="card"><div class="section-title"><div class="icon-box">📨</div><div><h2>درخواست‌های پرداخت</h2><p>لینک‌های ارسال‌شده برای شما</p></div></div><div class="option-list">{% for item in payment_requests %}<article><div><b>{{ item.description or 'درخواست پرداخت' }}</b><small>#{{ item.id }}</small></div><div><strong>{{ "{:,}".format(item.amount_rial//10) }} تومان</strong><span class="badge">{{ item.status }}</span></div></article>{% else %}<p class="empty-state">درخواستی وجود ندارد.</p>{% endfor %}</div></section>
+  <section class="card"><div class="section-title"><div class="icon-box">🛟</div><div><h2>پشتیبانی</h2><p>تیکت‌های مرتبط با حساب شما</p></div></div><div class="option-list">{% for item in tickets %}<article><div><b>{{ item.subject }}</b><small>#{{ item.id }} • {{ item.priority }}</small></div><span class="badge">{{ item.status }}</span></article>{% else %}<p class="empty-state">تیکتی وجود ندارد.</p>{% endfor %}</div></section>
+</main>
+</body>
+</html>

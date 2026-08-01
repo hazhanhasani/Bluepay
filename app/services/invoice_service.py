@@ -104,6 +104,7 @@ async def create_invoice(
     idempotency_key: str | None = None,
     risk_score: int = 0,
     risk_status: str = "approved",
+    source_channel: str | None = None,
 ) -> Invoice:
     if base_amount_rial < 10_000:
         raise ValueError("مبلغ فاکتور باید حداقل ۱٬۰۰۰ تومان باشد")
@@ -118,6 +119,33 @@ async def create_invoice(
     fee = max(0, locked.verification_fee_rial)
     if fee > 0 and locked.available_balance_rial < fee:
         raise ValueError("موجودی قابل استفاده کیف پول برای رزرو کارمزد کافی نیست")
+
+    # Optional dynamic fraud and card-routing rules are evaluated centrally so
+    # API, bot and permanent payment links behave consistently.
+    try:
+        from app.services.options_service import evaluate_dynamic_fraud_rules, resolve_card_routing
+        dynamic_score, dynamic_status, _actions = await evaluate_dynamic_fraud_rules(
+            session,
+            merchant_id=locked.id,
+            store_id=store_id,
+            amount_rial=base_amount_rial,
+            source_channel=source_channel,
+        )
+        risk_score = max(risk_score, dynamic_score)
+        if dynamic_status == "blocked":
+            raise ValueError("صدور فاکتور توسط قانون ضدتقلب متوقف شد")
+        if dynamic_status == "review":
+            risk_status = "review"
+        if card_id is None:
+            card_id = await resolve_card_routing(
+                session,
+                merchant_id=locked.id,
+                store_id=store_id,
+                amount_rial=base_amount_rial,
+                source_channel=source_channel,
+            )
+    except ImportError:
+        pass
 
     card = await choose_card(session, locked.id, card_id)
     customer_fee = calculate_customer_fee(fee, fee_mode)
@@ -165,6 +193,9 @@ async def create_invoice(
         environment="live",
         risk_score=max(0, min(100, risk_score)),
         risk_status=risk_status,
+        received_amount_rial=0,
+        completion_mode="exact",
+        source_channel=(source_channel or None),
         status="pending",
         expires_at=expires_at,
         # Store invoices use only the callback configured for that store (or
@@ -291,7 +322,7 @@ async def create_wallet_topup_invoice(
 
 
 async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, status: str) -> bool:
-    if invoice.status != "pending":
+    if invoice.status not in {"pending", "partially_paid"}:
         return False
     merchant = await session.scalar(select(Merchant).where(Merchant.id == invoice.merchant_id).with_for_update())
     if not merchant:
@@ -344,7 +375,7 @@ async def confirm_invoice_paid(
         .options(joinedload(Invoice.card), joinedload(Invoice.merchant), joinedload(Invoice.store))
         .with_for_update()
     )
-    if not invoice or invoice.status != "pending" or invoice.matched_sms_id:
+    if not invoice or invoice.status not in {"pending", "partially_paid"} or invoice.matched_sms_id:
         return None
 
     merchant = await session.scalar(select(Merchant).where(Merchant.id == invoice.merchant_id).with_for_update())
@@ -368,6 +399,7 @@ async def confirm_invoice_paid(
         merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - fee)
         merchant.wallet_balance_rial -= fee
     invoice.status = "paid"
+    invoice.received_amount_rial = max(int(invoice.received_amount_rial or 0), invoice.payable_amount_rial)
     invoice.paid_at = utcnow()
     invoice.matched_sms_id = sms_id
     invoice.reference_number = reference_number
@@ -432,6 +464,11 @@ async def confirm_invoice_paid(
     )
     await session.flush()
     if invoice.purpose == "payment":
+        try:
+            from app.services.options_service import on_invoice_paid_options
+            await on_invoice_paid_options(session, invoice)
+        except ImportError:
+            pass
         await enqueue_live_paid_callback(session, invoice)
     await session.flush()
     return invoice

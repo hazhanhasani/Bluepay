@@ -83,6 +83,17 @@ def invoice_payload(invoice: Invoice) -> dict:
         "customer_fee_rial": invoice.customer_fee_rial,
         "unique_amount_rial": invoice.unique_amount_rial,
         "payable_amount_rial": invoice.payable_amount_rial,
+        "received_amount_rial": int(invoice.received_amount_rial or 0),
+        "remaining_amount_rial": max(0, invoice.payable_amount_rial - int(invoice.received_amount_rial or 0)),
+        "completion_mode": invoice.completion_mode,
+        "source_channel": invoice.source_channel,
+        "customer_id": invoice.customer_id,
+        "payment_link_id": invoice.payment_link_id,
+        "campaign_id": invoice.campaign_id,
+        "branch_id": invoice.branch_id,
+        "discount_id": invoice.discount_id,
+        "affiliate_id": invoice.affiliate_id,
+        "subscription_id": invoice.subscription_id,
         "payment_url": f"{settings.base_url}/pay/{invoice.token}",
         "return_url": invoice.return_url,
         "expires_at": invoice.expires_at.isoformat(),
@@ -524,6 +535,7 @@ async def api_create_invoice(
             idempotency_key=idempotency_key,
             risk_score=risk.score,
             risk_status=risk.status,
+            source_channel="api",
         )
         payload = invoice_payload(invoice)
         payload["risk"] = {"score": risk.score, "status": risk.status}
@@ -1139,10 +1151,16 @@ async def public_invoice_status(token: str, session: AsyncSession = Depends(get_
     expires_at = invoice.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if invoice.status == "pending" and expires_at < now:
+    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
-    return {"status": invoice.status, "reference_number": invoice.reference_number}
+    return {
+        "status": invoice.status,
+        "reference_number": invoice.reference_number,
+        "received_amount_rial": int(invoice.received_amount_rial or 0),
+        "remaining_amount_rial": max(0, invoice.payable_amount_rial - int(invoice.received_amount_rial or 0)),
+        "completion_mode": invoice.completion_mode,
+    }
 
 
 @router.get("/pay/{token}", response_class=HTMLResponse)
@@ -1155,7 +1173,7 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
     expires_at = invoice.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if invoice.status == "pending" and expires_at < now:
+    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
 
@@ -1191,6 +1209,34 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
     except Exception:
         card_display = "****-****-****-" + invoice.card.card_last4
         card_copy = ""
+    try:
+        from app.services.options_service import record_analytics_event
+        await record_analytics_event(
+            session,
+            merchant_id=invoice.merchant_id,
+            store_id=invoice.store_id,
+            invoice_id=invoice.id,
+            payment_link_id=invoice.payment_link_id,
+            campaign_id=invoice.campaign_id,
+            variant_id=invoice.ab_variant_id,
+            session_id=request.cookies.get("bp_session"),
+            source=invoice.source_channel,
+            event_type="payment_page.viewed",
+        )
+        await session.commit()
+    except Exception as exc:
+        print(f"payment_analytics_error={type(exc).__name__}: {exc}")
+    try:
+        from app.models import MerchantVerification
+        from app.services.options_service import ensure_option_profile
+        option_profile = await ensure_option_profile(session, invoice.merchant_id)
+        verification = await session.scalar(
+            select(MerchantVerification).where(MerchantVerification.merchant_id == invoice.merchant_id)
+        )
+        await session.commit()
+    except Exception:
+        option_profile = None
+        verification = None
     return templates.TemplateResponse(
         "payment.html",
         {
@@ -1200,6 +1246,8 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
             "card_copy": card_copy,
             "toman": rial_to_toman,
             "bank_name": bank_label(invoice.card.bank_code),
+            "option_profile": option_profile,
+            "verification": verification,
         },
     )
 
@@ -1324,7 +1372,7 @@ async def merchant_sms_webhook(
         merchant_id=merchant.id,
         bank_hint=bank_code,
     )
-    if diagnostic.result in {"amount_not_found", "low_confidence", "no_amount_candidate", "bank_or_card_mismatch", "source_mismatch_ambiguous", "ambiguous", "race_or_already_paid"}:
+    if diagnostic.result in {"amount_not_found", "low_confidence", "no_amount_candidate", "bank_or_card_mismatch", "source_mismatch_ambiguous", "ambiguous", "partial_ambiguous", "race_or_already_paid"}:
         await open_reconciliation_case(
             session,
             case_key=f"sms:{sms.id}:{diagnostic.result}",
@@ -1332,8 +1380,26 @@ async def merchant_sms_webhook(
             detail=diagnostic.detail,
             merchant_id=merchant.id,
             sms_id=sms.id,
-            severity="high" if diagnostic.result in {"ambiguous", "race_or_already_paid"} else "medium",
+            severity="high" if diagnostic.result in {"ambiguous", "partial_ambiguous", "race_or_already_paid"} else "medium",
         )
+    if diagnostic.result not in {"matched", "partial_matched", "duplicate", "ignored_non_payment"}:
+        try:
+            from app.services.options_service import trigger_automations
+            await trigger_automations(
+                session,
+                merchant_id=merchant.id,
+                trigger="sms.unmatched",
+                invoice=invoice,
+                payload={
+                    "sms_id": sms.id,
+                    "result": diagnostic.result,
+                    "detail": diagnostic.detail,
+                    "amount_rial": sms.amount_rial,
+                    "bank_code": sms.bank_code,
+                },
+            )
+        except Exception as exc:
+            print(f"sms_automation_error={type(exc).__name__}: {exc}")
     await write_audit(
         session,
         action=f"sms.{diagnostic.result}",
