@@ -14,7 +14,7 @@
         <div>
           <span class="badge">BluePay Developers • API Contract {{ docs_contract_version }} • App {{ app_version }}</span>
           <h1>مستندات توسعه‌دهندگان بلوپی</h1>
-          <p>API چندفروشگاهی، چند کلید مستقل، Callback امضاشده و تأیید پیامک بانکی</p>
+          <p>API چندفروشگاهی، یک کلید اختصاصی برای هر فروشگاه، Callback امضاشده و تأیید پیامک بانکی</p>
         </div>
       </div>
       <a class="ghost-link" href="/">صفحه اصلی سرویس</a>
@@ -26,7 +26,7 @@
       <strong>فهرست راهنما</strong>
       <a href="#quickstart">شروع سریع</a>
       <a href="#credentials">دریافت اطلاعات اتصال</a>
-      <a href="#stores">فروشگاه‌ها و کلیدها</a>
+      <a href="#stores">فروشگاه‌ها و API</a>
       <a href="#api">API فاکتور</a>
       <a href="#fee-modes">مقادیر fee_mode</a>
       <a href="#invoice-limits">محدوده مبلغ و زمان</a>
@@ -46,7 +46,7 @@
           <div><h2>دریافت اطلاعات اتصال</h2><p>اطلاعات اختصاصی فقط داخل ربات احرازشده نمایش داده می‌شود</p></div>
         </div>
         <div class="status-table">
-          <div><code>API Key</code><span>از «اتصال و API ← فروشگاه‌ها و APIها ← مدیریت کلیدها» دریافت یا ایجاد کنید.</span></div>
+          <div><code>API Key</code><span>از «اتصال و API ← فروشگاه‌ها و APIها» دریافت یا بازنشانی کنید.</span></div>
           <div><code>Store ID / Code</code><span>در پرونده همان فروشگاه داخل ربات نمایش داده می‌شود.</span></div>
           <div><code>Callback URL</code><span>از بخش Callback هر فروشگاه ثبت، ویرایش و آزمایش می‌شود.</span></div>
           <div><code>Callback Secret</code><span>فقط داخل بخش احرازشده Callback ربات قابل مشاهده یا بازنشانی است.</span></div>
@@ -58,18 +58,19 @@
       <section class="card" id="stores">
         <div class="section-title"><div class="icon-box">🏪</div><div><h2>فروشگاه‌ها و دسترسی‌های مستقل</h2><p>ساختار عمومی چندفروشگاهی بلوپی</p></div></div>
         <div class="status-table">
-          <div><code>Store</code><span>هر فروشگاه محدوده مستقل فاکتورها، Callback و کلیدهای API خود را دارد.</span></div>
-          <div><code>API Key</code><span>برای سایت، ربات، اپلیکیشن یا محیط توسعه می‌توان کلیدهای جداگانه ساخت و مستقل غیرفعال کرد.</span></div>
+          <div><code>Store</code><span>هر فروشگاه محدوده مستقل فاکتورها، یک کلید API و Callback اختصاصی خود را دارد.</span></div>
+          <div><code>API Key</code><span>برای هر فروشگاه فقط یک کلید API فعال وجود دارد؛ بازنشانی کلید، کلید قبلی را فوراً باطل می‌کند.</span></div>
           <div><code>Isolation</code><span>کلید یک فروشگاه به فاکتورها و سفارش‌های فروشگاه دیگر دسترسی ندارد.</span></div>
         </div>
-        <div class="notice">ثبت فروشگاه و مدیریت کلیدها فقط از داخل ربات انجام می‌شود؛ مستندات صرفاً قرارداد عمومی API را توضیح می‌دهد.</div>
+        <div class="notice">ثبت فروشگاه، دریافت یا بازنشانی API و تنظیم Callback فقط از داخل ربات انجام می‌شود؛ مستندات صرفاً قرارداد عمومی API را توضیح می‌دهد.</div>
+        <div class="notice warning">هر فروشگاه فقط یک API دارد. گزینه «بازنشانی کلید API» کلید قبلی را همان لحظه نامعتبر می‌کند؛ بنابراین کلید جدید را فوراً در Backend همان فروشگاه جایگزین کنید.</div>
       </section>
 
       <section class="card" id="quickstart">
         <div class="section-title"><div class="icon-box">🚀</div><div><h2>شروع سریع در ۴ مرحله</h2><p>مسیر پیشنهادی برای راه‌اندازی بدون سردرگمی</p></div></div>
         <div class="steps-grid">
-          <div class="step-card"><b>۱</b><h3>ثبت فروشگاه</h3><p>در ربات، فروشگاه را با نام و نشانی آن ثبت کنید؛ اولین کلید API همان لحظه صادر می‌شود.</p></div>
-          <div class="step-card"><b>۲</b><h3>کلید و Callback مستقل</h3><p>برای هر سرویس کلید جدا بسازید و Callback اختصاصی همان فروشگاه را ثبت کنید.</p></div>
+          <div class="step-card"><b>۱</b><h3>ثبت فروشگاه</h3><p>در ربات، فروشگاه را با نام و نشانی آن ثبت کنید؛ کلید API اختصاصی همان لحظه صادر می‌شود.</p></div>
+          <div class="step-card"><b>۲</b><h3>API و Callback مستقل</h3><p>کلید یکتای فروشگاه را در Backend ذخیره و Callback اختصاصی همان فروشگاه را ثبت کنید.</p></div>
           <div class="step-card"><b>۳</b><h3>ساخت فاکتور</h3><p>با API یک ساخت فاکتور و لینک payment_url را برای مشتری ارسال کن.</p></div>
           <div class="step-card"><b>۴</b><h3>اتصال پیامک بانکی</h3><p>Webhook اختصاصی را در SMS Forwarder ثبت کنید تا واریزها به‌صورت خودکار تأیید شوند.</p></div>
         </div>
@@ -78,8 +79,8 @@
       <section class="card" id="api">
         <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
         <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
-        <div class="notice">هر کلید به یک فروشگاه مشخص متصل است. کلید فروشگاه دیگر امکان استعلام یا لغو فاکتورهای این فروشگاه را ندارد. کلید را فقط در Backend نگه دارید.</div>
-        <div class="notice warning">کلید جداگانه فقط دسترسی‌ها را تفکیک می‌کند و به‌معنای Sandbox نیست. تمام فاکتورهای ساخته‌شده در این نشانی، واقعی هستند.</div>
+        <div class="notice">هر فروشگاه یک کلید API مشخص دارد. کلید فروشگاه دیگر امکان استعلام یا لغو فاکتورهای این فروشگاه را ندارد. کلید را فقط در Backend نگه دارید.</div>
+        <div class="notice warning">ساخت فروشگاه جدا فقط داده‌ها و دسترسی‌ها را تفکیک می‌کند و به‌معنای Sandbox نیست. تمام فاکتورهای ساخته‌شده در این نشانی، واقعی هستند.</div>
 
         <h3 id="fee-modes">مقادیر مجاز <code>fee_mode</code></h3>
         <p>این فیلد مشخص می‌کند چه مقدار از کارمزد تأیید به مبلغ پرداختی مشتری افزوده شود. کارمزد سرویس در زمان ساخت فاکتور از کیف پول پذیرنده رزرو و پس از پرداخت از همان کیف پول کسر می‌شود.</p>
@@ -100,7 +101,7 @@
           <div><code>description</code><span>اختیاری، حداکثر ۵۰۰ نویسه.</span></div>
           <div><code>fee_mode</code><span>اختیاری؛ <code>merchant</code>، <code>customer</code>، <code>split</code> یا <code>default</code>. مقدار <code>free</code> پذیرفته نمی‌شود.</span></div>
           <div><code>card_id</code><span>اختیاری؛ باید شناسه یک کارت فعال متعلق به همان پذیرنده باشد.</span></div>
-          <div><code>callback_url</code><span>اختیاری؛ فقط HTTPS عمومی و قابل دسترس از اینترنت پذیرفته می‌شود.</span></div>
+          <div><code>callback_url</code><span>اختیاری و مخصوص همان فاکتور؛ در صورت حذف، Callback اختصاصی فروشگاه استفاده می‌شود. Callback فروشگاه دیگری یا Callback عمومی حساب به ارث نمی‌رسد.</span></div>
           <div><code>ttl_minutes</code><span>اختیاری؛ حداقل ۵ و حداکثر ۱٬۴۴۰ دقیقه. در صورت حذف، مقدار پیش‌فرض سامانه استفاده می‌شود.</span></div>
           <div><code>unique_amount_rial</code><span>سامانه به‌طور خودکار ۱ تا ۹۹۹ تومان کد تطبیق به مبلغ نهایی اضافه می‌کند.</span></div>
         </div>

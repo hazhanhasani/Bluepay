@@ -198,12 +198,12 @@ async def api_create_invoice(
             card_id=body.card_id,
             callback_url=(
                 callback_url
-                or (context.store.callback_url if context.store and context.store.callback_url else merchant.callback_url)
+                or (context.store.callback_url if context.store else merchant.callback_url)
             ),
             callback_secret=(
                 context.store.callback_secret
                 if context.store and (callback_url or context.store.callback_url)
-                else merchant.callback_secret
+                else (merchant.callback_secret if not context.store else None)
             ),
             ttl_minutes=body.ttl_minutes,
             store_id=context.store.id if context.store else None,

@@ -19,7 +19,7 @@ def test_multi_store_tables_and_invoice_columns_exist():
     assert {"store_id", "api_key_id", "client_order_id"}.issubset(invoice_columns)
 
 
-def test_one_merchant_can_have_multiple_stores_and_keys():
+def test_one_merchant_can_have_multiple_stores_with_one_key_each():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -30,12 +30,14 @@ def test_one_merchant_can_have_multiple_stores_and_keys():
             merchant_id=merchant.id,
             code="ST-STOREA",
             name="Store A",
+            callback_url="https://a.example/callback",
             callback_secret="a-secret",
         )
         store_b = Store(
             merchant_id=merchant.id,
             code="ST-STOREB",
             name="Store B",
+            callback_url="https://b.example/callback",
             callback_secret="b-secret",
         )
         session.add_all([store_a, store_b])
@@ -45,30 +47,25 @@ def test_one_merchant_can_have_multiple_stores_and_keys():
                 StoreApiKey(
                     merchant_id=merchant.id,
                     store_id=store_a.id,
-                    label="Website",
+                    label="Main API",
                     key_hash=sha256_text("gw_a"),
                     key_prefix="gw_a",
                 ),
                 StoreApiKey(
                     merchant_id=merchant.id,
-                    store_id=store_a.id,
-                    label="Bot",
+                    store_id=store_b.id,
+                    label="Main API",
                     key_hash=sha256_text("gw_b"),
                     key_prefix="gw_b",
-                ),
-                StoreApiKey(
-                    merchant_id=merchant.id,
-                    store_id=store_b.id,
-                    label="Website",
-                    key_hash=sha256_text("gw_c"),
-                    key_prefix="gw_c",
                 ),
             ]
         )
         session.commit()
         assert session.query(Store).filter_by(merchant_id=merchant.id).count() == 2
-        assert session.query(StoreApiKey).filter_by(store_id=store_a.id).count() == 2
+        assert session.query(StoreApiKey).filter_by(store_id=store_a.id).count() == 1
         assert session.query(StoreApiKey).filter_by(store_id=store_b.id).count() == 1
+        assert store_a.callback_url != store_b.callback_url
+        assert store_a.callback_secret != store_b.callback_secret
 
 
 def test_callback_payload_uses_client_order_and_store_identity():

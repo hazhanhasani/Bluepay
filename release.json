@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "min_version": "0.2.3",
-  "description": "فهرست خودکار تمام ایموجی‌ها و نمادهای استفاده‌شده در ربات، انتخاب جداگانه هر مورد و جایگزینی سراسری آن با Telegram Custom Emoji در کلیدها و متن‌های قالب‌بندی‌شده",
+  "description": "محدودسازی هر فروشگاه به یک کلید API اختصاصی، بازنشانی امن کلید قبلی و جداسازی قطعی Callback و Secret هر فروشگاه بدون ارث‌بری Callback عمومی حساب",
   "run_migrations": true
 }

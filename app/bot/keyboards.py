@@ -171,7 +171,7 @@ def cards_menu() -> InlineKeyboardMarkup:
 def api_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🏪 مدیریت فروشگاه‌ها و کلیدها", callback_data="stores")],
+            [InlineKeyboardButton(text="🏪 مدیریت فروشگاه‌ها و API", callback_data="stores")],
             [InlineKeyboardButton(text="＋ ثبت فروشگاه جدید", callback_data="store:add")],
             [InlineKeyboardButton(text="📚 مستندات API", url=docs_url + "#api")],
             [InlineKeyboardButton(text="‹ بازگشت به مرکز اتصال", callback_data="connect")],
@@ -185,7 +185,7 @@ def stores_menu(stores: Iterable[tuple[int, str, str, bool, int]]) -> InlineKeyb
         marker = "🟢" if active else "⚫️"
         rows.append([
             InlineKeyboardButton(
-                text=f"{marker} {name} • {key_count} API",
+                text=f"{marker} {name} • {'API فعال' if key_count else 'API غیرفعال'}",
                 callback_data=f"store:view:{store_id}",
             )
         ])
@@ -204,23 +204,36 @@ def store_detail_menu(
     callback_configured: bool,
     keys: Iterable[tuple[int, str, str, bool]],
 ) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="＋ صدور کلید API جدید", callback_data=f"store:key:new:{store_id}")],
-    ]
-    for key_id, label, prefix, key_active in keys:
+    key_items = list(keys)
+    rows: list[list[InlineKeyboardButton]] = []
+    if key_items:
+        key_id, label, prefix, key_active = key_items[0]
         marker = "🟢" if key_active else "⚫️"
-        action = "غیرفعال" if key_active else "فعال"
-        rows.append([
-            InlineKeyboardButton(
-                text=f"{marker} {label} • {prefix}",
-                callback_data="noop",
-            ),
-            InlineKeyboardButton(
-                text=action,
-                callback_data=f"store:key:toggle:{key_id}:{store_id}",
-            ),
+        action = "غیرفعال‌کردن API" if key_active else "فعال‌کردن API"
+        rows.extend([
+            [
+                InlineKeyboardButton(
+                    text=f"{marker} {label} • {prefix}",
+                    callback_data="noop",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=action,
+                    callback_data=f"store:key:toggle:{key_id}:{store_id}",
+                ),
+                InlineKeyboardButton(
+                    text="♻️ بازنشانی کلید API",
+                    callback_data=f"store:key:rotate:{store_id}",
+                ),
+            ],
         ])
-    rows.append([InlineKeyboardButton(text="🔔 ثبت یا ویرایش Callback", callback_data=f"store:callback:set:{store_id}")])
+    else:
+        rows.append([
+            InlineKeyboardButton(text="🔑 ساخت کلید API", callback_data=f"store:key:new:{store_id}")
+        ])
+
+    rows.append([InlineKeyboardButton(text="🔔 ثبت یا ویرایش Callback اختصاصی", callback_data=f"store:callback:set:{store_id}")])
     if callback_configured:
         rows.append([
             InlineKeyboardButton(text="🧪 تست Callback", callback_data=f"store:callback:test:{store_id}"),

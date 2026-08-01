@@ -114,6 +114,26 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
         if (legacy_key_insert.rowcount or 0) > 0:
             changed = True
 
+        # Releases before 0.5.6 allowed multiple active API keys per store.
+        # Keep one active key for compatibility and revoke the rest without
+        # deleting rows that may still be referenced by historical invoices.
+        duplicate_key_update = await connection.execute(
+            text(
+                "UPDATE store_api_keys SET is_active = 0 "
+                "WHERE is_active = 1 AND id NOT IN ("
+                "SELECT MIN(id) FROM store_api_keys WHERE is_active = 1 GROUP BY store_id"
+                ")"
+            )
+        )
+        if (duplicate_key_update.rowcount or 0) > 0:
+            changed = True
+        await connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_store_one_active_api_key "
+                "ON store_api_keys (store_id) WHERE is_active = 1"
+            )
+        )
+
         # Protect pending invoices created by older versions as well.
         await connection.execute(
             text(

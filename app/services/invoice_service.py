@@ -142,8 +142,12 @@ async def create_invoice(
         fee_mode=fee_mode,
         status="pending",
         expires_at=expires_at,
-        callback_url=callback_url or locked.callback_url,
-        callback_secret=callback_secret or locked.callback_secret,
+        # Store invoices use only the callback configured for that store (or
+        # an explicit per-invoice override). They never inherit another store
+        # or the old merchant-wide callback. Legacy/manual invoices keep the
+        # merchant-level fallback for backward compatibility.
+        callback_url=(callback_url if store_id is not None else callback_url or locked.callback_url),
+        callback_secret=(callback_secret if store_id is not None else callback_secret or locked.callback_secret),
         store_id=store_id,
         api_key_id=api_key_id,
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -9,8 +9,7 @@ from app.core.security import api_key, random_secret, sha256_text
 from app.models import Merchant, Store, StoreApiKey
 
 MAX_STORES_PER_MERCHANT = 20
-MAX_ACTIVE_KEYS_PER_STORE = 10
-MAX_TOTAL_KEYS_PER_STORE = 30
+MAX_API_KEYS_PER_STORE = 1
 
 
 def _store_code() -> str:
@@ -57,36 +56,82 @@ async def create_store(
     return store
 
 
+async def get_store_api_key(session: AsyncSession, store_id: int) -> StoreApiKey | None:
+    """Return the single canonical API key for a store.
+
+    Older releases allowed multiple keys. During upgrade they are deactivated,
+    but this selector still prefers the active key and then the oldest record so
+    legacy databases remain manageable without deleting invoice history.
+    """
+    return await session.scalar(
+        select(StoreApiKey)
+        .where(StoreApiKey.store_id == store_id)
+        .order_by(StoreApiKey.is_active.desc(), StoreApiKey.id.asc())
+        .limit(1)
+    )
+
+
 async def issue_store_api_key(
     session: AsyncSession,
     store: Store,
     label: str | None = None,
 ) -> tuple[StoreApiKey, str]:
-    active_count = int(await session.scalar(
-        select(func.count(StoreApiKey.id)).where(
-            StoreApiKey.store_id == store.id,
-            StoreApiKey.is_active.is_(True),
+    existing = await get_store_api_key(session, store.id)
+    if existing:
+        raise ValueError(
+            "هر فروشگاه فقط یک کلید API دارد؛ برای تعویض کلید از گزینه «بازنشانی کلید API» استفاده کنید"
         )
-    ) or 0)
-    if active_count >= MAX_ACTIVE_KEYS_PER_STORE:
-        raise ValueError(f"هر فروشگاه حداکثر {MAX_ACTIVE_KEYS_PER_STORE} کلید API فعال می‌تواند داشته باشد")
 
-    total_count = int(await session.scalar(
-        select(func.count(StoreApiKey.id)).where(StoreApiKey.store_id == store.id)
-    ) or 0)
-    if total_count >= MAX_TOTAL_KEYS_PER_STORE:
-        raise ValueError(f"هر فروشگاه حداکثر {MAX_TOTAL_KEYS_PER_STORE} کلید API ثبت‌شده می‌تواند داشته باشد")
     plain = api_key()
     key = StoreApiKey(
         merchant_id=store.merchant_id,
         store_id=store.id,
-        label=(label or f"کلید API شماره {total_count + 1}")[:80],
+        label=(label or "کلید اصلی")[:80],
         key_hash=sha256_text(plain),
         key_prefix=plain[:12],
         is_active=True,
         is_legacy=False,
     )
     session.add(key)
+    await session.flush()
+    return key, plain
+
+
+async def rotate_store_api_key(
+    session: AsyncSession,
+    store: Store,
+) -> tuple[StoreApiKey, str]:
+    """Replace the store's only API key and immediately revoke all old keys."""
+    key = await get_store_api_key(session, store.id)
+    plain = api_key()
+
+    if key is None:
+        key = StoreApiKey(
+            merchant_id=store.merchant_id,
+            store_id=store.id,
+            label="کلید اصلی",
+            key_hash=sha256_text(plain),
+            key_prefix=plain[:12],
+            is_active=True,
+            is_legacy=False,
+        )
+        session.add(key)
+        await session.flush()
+        return key, plain
+
+    # Any extra records are retained only for historical invoice references, but
+    # can no longer authenticate after rotation.
+    await session.execute(
+        update(StoreApiKey)
+        .where(StoreApiKey.store_id == store.id, StoreApiKey.id != key.id)
+        .values(is_active=False)
+    )
+    key.label = "کلید اصلی"
+    key.key_hash = sha256_text(plain)
+    key.key_prefix = plain[:12]
+    key.is_active = True
+    key.is_legacy = False
+    key.last_used_at = None
     await session.flush()
     return key, plain
 
@@ -126,15 +171,14 @@ async def set_key_active(
     )
     if not key:
         return None
-    if active and not key.is_active:
-        active_count = int(await session.scalar(
-            select(func.count(StoreApiKey.id)).where(
-                StoreApiKey.store_id == key.store_id,
-                StoreApiKey.is_active.is_(True),
-            )
-        ) or 0)
-        if active_count >= MAX_ACTIVE_KEYS_PER_STORE:
-            raise ValueError(f"هر فروشگاه حداکثر {MAX_ACTIVE_KEYS_PER_STORE} کلید API فعال می‌تواند داشته باشد")
+
+    if active:
+        # A store has one usable API. Any historical duplicate is revoked first.
+        await session.execute(
+            update(StoreApiKey)
+            .where(StoreApiKey.store_id == key.store_id, StoreApiKey.id != key.id)
+            .values(is_active=False)
+        )
     key.is_active = active
     await session.flush()
     return key
