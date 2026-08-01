@@ -162,3 +162,11 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
 
 @media(max-width:980px){.live-stat-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.live-stat-grid{grid-template-columns:1fr 1fr;gap:9px}.live-stat-grid article{min-height:130px;padding:16px}.live-stat-grid strong{font-size:25px}.privacy-note{text-align:center}.live-updated{font-size:7px}}
+
+
+/* BluePay brand image assets */
+.brand-mark--image,.preview-logo--image,.logo-image{padding:0;overflow:hidden}
+.brand-mark--image img,.preview-logo--image img,.logo-image img{display:block;width:78%;height:78%;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(47,109,246,.28))}
+.logo-image img{width:86%;height:86%}
+.footer-brand .brand-mark--image img{width:80%;height:80%}
+@media(max-width:620px){.brand-mark--image img,.preview-logo--image img,.logo-image img{width:80%;height:80%}}

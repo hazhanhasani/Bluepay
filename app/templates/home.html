@@ -10,13 +10,15 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="{{ base_url }}">
   <title>بلوپی | پرداخت مستقیم با تأیید خودکار</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <meta property="og:image" content="{{ base_url }}/static/brand/bluepay-logo-full.png">
   <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
 </head>
 <body class="landing-body">
   <header class="landing-nav">
     <div class="landing-container nav-inner">
       <a class="brand" href="#top" aria-label="صفحه اصلی بلوپی">
-        <span class="brand-mark">B</span>
+        <span class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span>
         <span><b>بلوپی</b><small>BluePay</small></span>
       </a>
       <nav class="nav-links" aria-label="منوی اصلی">
@@ -56,7 +58,7 @@
           <div class="visual-orbit orbit-two"></div>
           <div class="payment-preview" data-live-tone="invoice">
             <div class="preview-top">
-              <span class="preview-logo">B</span>
+              <span class="preview-logo preview-logo--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span>
               <div><b>آخرین فعالیت سامانه</b><small>داده زنده و بدون اطلاعات هویتی</small></div>
               <span class="preview-status tone-{{ live_data.invoice.status_tone }}" data-live="invoice-status" data-live-tone="invoice-status">{{ live_data.invoice.status_label }}</span>
             </div>
@@ -249,7 +251,7 @@ const invoice = await response.json();</code></pre>
 
   <footer class="landing-footer">
     <div class="landing-container footer-grid">
-      <div class="footer-brand"><span class="brand-mark">B</span><div><b>بلوپی</b><p>زیرساخت پرداخت مستقیم با تأیید هوشمند پیامک بانکی.</p></div></div>
+      <div class="footer-brand"><span class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span><div><b>بلوپی</b><p>زیرساخت پرداخت مستقیم با تأیید هوشمند پیامک بانکی.</p></div></div>
       <div><b>محصول</b><a href="#how">نحوه کار</a><a href="#live">آمار زنده</a>
         <a href="#features">امکانات</a><a href="{{ docs_url }}">مستندات API</a></div>
       <div><b>دسترسی</b><a href="{{ telegram_url }}">ربات تلگرام</a><a href="{{ health_url }}">وضعیت سرویس</a><a href="#security">امنیت</a></div>

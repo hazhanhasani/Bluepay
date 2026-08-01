@@ -1,6 +1,6 @@
 {
-  "name": "BluePay Gateway Bot",
-  "version": "0.6.1",
+  "name": "gateway-bot-v0.6.2-brand-logo",
+  "version": "0.6.2",
   "min_version": "0.2.3",
   "description": "اتصال وب‌سایت عمومی به داده‌های واقعی و ناشناس ربات؛ نمایش زنده آخرین وضعیت فاکتور، Callback و آمار عملیاتی با به‌روزرسانی خودکار",
   "run_migrations": true
