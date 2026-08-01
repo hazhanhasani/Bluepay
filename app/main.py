@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -9,14 +10,20 @@ import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import select
 
+from app.api.errors import default_error_code, error_response
 from app.api.routes import router as api_router
 from app.bot.admin import router as admin_router
 from app.bot.handlers import router as bot_router
 from app.core.config import settings
+from app.core.rate_limit import rate_limiter
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models import Invoice
@@ -111,6 +118,104 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Direct Payment Gateway Bot", version=APP_VERSION, lifespan=lifespan, docs_url="/openapi", redoc_url=None)
+
+
+def _is_json_contract_path(request: Request) -> bool:
+    return request.url.path.startswith(("/api/", "/webhooks/"))
+
+
+@app.middleware("http")
+async def request_context_and_rate_limit(request: Request, call_next):
+    request.state.request_id = f"req_{secrets.token_hex(12)}"
+    blocked, decisions = await rate_limiter.check(request)
+    if blocked:
+        response = error_response(
+            request,
+            status_code=429,
+            code="RATE_LIMITED",
+            message="تعداد درخواست‌ها از سهمیه مجاز بیشتر است",
+            details={
+                "scope": blocked.scope,
+                "limit": blocked.limit,
+                "window_seconds": 60,
+                "retry_after": blocked.retry_after,
+            },
+            headers={"Retry-After": str(blocked.retry_after)},
+        )
+    else:
+        response = await call_next(request)
+
+    response.headers["X-Request-ID"] = request.state.request_id
+    if decisions:
+        active = min(decisions, key=lambda item: (item.remaining / max(item.limit, 1), item.limit))
+        response.headers["X-RateLimit-Limit"] = str(active.limit)
+        response.headers["X-RateLimit-Remaining"] = str(active.remaining)
+        response.headers["X-RateLimit-Reset"] = str(active.reset_epoch)
+        response.headers["X-RateLimit-Scope"] = active.scope
+    return response
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if not _is_json_contract_path(request):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+    message = str(exc.detail) if not isinstance(exc.detail, dict) else str(exc.detail.get("message", "درخواست نامعتبر است"))
+    field = exc.detail.get("field") if isinstance(exc.detail, dict) else None
+    details = exc.detail.get("details") if isinstance(exc.detail, dict) else None
+    code = exc.detail.get("code") if isinstance(exc.detail, dict) else default_error_code(exc.status_code)
+    return error_response(
+        request,
+        status_code=exc.status_code,
+        code=code,
+        message=message,
+        field=field,
+        details=details,
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if not _is_json_contract_path(request):
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    errors = jsonable_encoder(exc.errors())
+    first = errors[0] if errors else {}
+    loc = first.get("loc") or []
+    field = ".".join(str(part) for part in loc if part not in {"body", "query", "path", "header"}) or None
+    code = "VALIDATION_ERROR"
+    message = "پارامترهای درخواست معتبر نیستند"
+    details = {"errors": errors}
+    if field == "amount_toman":
+        code = "INVALID_AMOUNT"
+        message = "مبلغ فاکتور معتبر نیست"
+        details = {"min": 1000, "max": 500000000, "errors": errors}
+    elif field == "fee_mode":
+        code = "INVALID_FEE_MODE"
+        message = "مقدار fee_mode معتبر نیست"
+        details = {"allowed": ["merchant", "customer", "split", "default"], "errors": errors}
+    return error_response(
+        request,
+        status_code=422,
+        code=code,
+        message=message,
+        field=field,
+        details=details,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    print(f"unhandled_request_error={type(exc).__name__}: {exc}")
+    if not _is_json_contract_path(request):
+        return JSONResponse(status_code=500, content={"detail": "خطای داخلی سرور"})
+    return error_response(
+        request,
+        status_code=500,
+        code="INTERNAL_ERROR",
+        message="خطای داخلی سرور رخ داد",
+    )
+
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(api_router)
 

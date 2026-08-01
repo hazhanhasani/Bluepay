@@ -12,7 +12,7 @@
       <div class="topbar-brand">
         <div class="brand-mark">B</div>
         <div>
-          <span class="badge">BluePay Developers</span>
+          <span class="badge">BluePay Developers • API Contract {{ docs_contract_version }} • App {{ app_version }}</span>
           <h1>مستندات توسعه‌دهندگان بلوپی</h1>
           <p>API چندفروشگاهی، چند کلید مستقل، Callback امضاشده و تأیید پیامک بانکی</p>
         </div>
@@ -25,7 +25,7 @@
     <aside class="docs-nav card">
       <strong>فهرست راهنما</strong>
       <a href="#quickstart">شروع سریع</a>
-      <a href="#credentials">اطلاعات اتصال</a>
+      <a href="#credentials">دریافت اطلاعات اتصال</a>
       <a href="#stores">فروشگاه‌ها و کلیدها</a>
       <a href="#api">API فاکتور</a>
       <a href="#fee-modes">مقادیر fee_mode</a>
@@ -40,43 +40,30 @@
     </aside>
 
     <div class="docs-content">
-      {% if merchant %}
       <section class="card account-card" id="credentials">
         <div class="section-title">
-          <div class="icon-box">👤</div>
-          <div><h2>اطلاعات اختصاصی پذیرنده</h2><p>{{ merchant.name }}</p></div>
+          <div class="icon-box">🔐</div>
+          <div><h2>دریافت اطلاعات اتصال</h2><p>اطلاعات اختصاصی فقط داخل ربات احرازشده نمایش داده می‌شود</p></div>
         </div>
-        <div class="credential-grid">
-          <div><span>شناسه پذیرنده</span><code>{{ merchant.id }}</code></div>
-          <div><span>یک پیشوند فعال API</span><code>{{ api_prefix }}</code></div>
-          <div class="wide"><span>آدرس پایه API</span><code>{{ base_url }}/api/v1</code><button onclick="copyCode(this)">کپی</button></div>
-          <div class="wide"><span>وبهوک اختصاصی پیامک</span><code>{{ sms_webhook_url }}</code><button onclick="copyCode(this)">کپی</button></div>
-          <div class="wide"><span>Callback ثبت‌شده</span><code>{{ callback_url }}</code></div>
+        <div class="status-table">
+          <div><code>API Key</code><span>از «اتصال و API ← فروشگاه‌ها و APIها ← مدیریت کلیدها» دریافت یا ایجاد کنید.</span></div>
+          <div><code>Store ID / Code</code><span>در پرونده همان فروشگاه داخل ربات نمایش داده می‌شود.</span></div>
+          <div><code>Callback URL</code><span>از بخش Callback هر فروشگاه ثبت، ویرایش و آزمایش می‌شود.</span></div>
+          <div><code>Callback Secret</code><span>فقط داخل بخش احرازشده Callback ربات قابل مشاهده یا بازنشانی است.</span></div>
+          <div><code>SMS Webhook URL</code><span>نشانی کامل و محرمانه فقط از «اتصال و API ← وبهوک پیامک» دریافت می‌شود.</span></div>
         </div>
-        <div class="notice warning">کلید کامل API و Secret امضا فقط داخل ربات نمایش داده می‌شوند. این صفحه آن‌ها را افشا نمی‌کند.</div>
+        <div class="notice warning">این مستندات عمومی هیچ نام، شناسه پذیرنده، پیشوند کلید، فروشگاه ثبت‌شده، Callback اختصاصی یا توکن عملیاتی را نمایش نمی‌دهد. اطلاعات حساب را فقط از ربات رسمی و در گفت‌وگوی خصوصی دریافت کنید.</div>
       </section>
-      {% endif %}
 
-
-      {% if merchant %}
       <section class="card" id="stores">
-        <div class="section-title"><div class="icon-box">🏪</div><div><h2>فروشگاه‌ها و دسترسی‌های مستقل</h2><p>هر فروشگاه چند کلید API و Callback اختصاصی دارد</p></div></div>
-        {% if stores %}
-        <div class="credential-grid">
-          {% for store in stores %}
-          <div class="wide">
-            <span>{{ "فعال" if store.is_active else "غیرفعال" }} • {{ store.name }}</span>
-            <code>{{ store.code }}</code>
-            <small>کلیدهای فعال: {{ store.api_keys | selectattr("is_active") | list | length }} • Callback: {{ store.callback_url or "استفاده از پیش‌فرض حساب / تنظیم نشده" }}</small>
-          </div>
-          {% endfor %}
+        <div class="section-title"><div class="icon-box">🏪</div><div><h2>فروشگاه‌ها و دسترسی‌های مستقل</h2><p>ساختار عمومی چندفروشگاهی بلوپی</p></div></div>
+        <div class="status-table">
+          <div><code>Store</code><span>هر فروشگاه محدوده مستقل فاکتورها، Callback و کلیدهای API خود را دارد.</span></div>
+          <div><code>API Key</code><span>برای سایت، ربات، اپلیکیشن یا محیط توسعه می‌توان کلیدهای جداگانه ساخت و مستقل غیرفعال کرد.</span></div>
+          <div><code>Isolation</code><span>کلید یک فروشگاه به فاکتورها و سفارش‌های فروشگاه دیگر دسترسی ندارد.</span></div>
         </div>
-        {% else %}
-        <div class="notice warning">هنوز فروشگاهی ثبت نشده است. از ربات وارد «اتصال و API ← فروشگاه‌ها و APIها» شوید.</div>
-        {% endif %}
-        <div class="notice">کلید هر فروشگاه فقط به فاکتورهای همان فروشگاه دسترسی دارد. برای سایت، ربات و محیط آزمایش کلیدهای جداگانه صادر کنید.</div>
+        <div class="notice">ثبت فروشگاه و مدیریت کلیدها فقط از داخل ربات انجام می‌شود؛ مستندات صرفاً قرارداد عمومی API را توضیح می‌دهد.</div>
       </section>
-      {% endif %}
 
       <section class="card" id="quickstart">
         <div class="section-title"><div class="icon-box">🚀</div><div><h2>شروع سریع در ۴ مرحله</h2><p>مسیر پیشنهادی برای راه‌اندازی بدون سردرگمی</p></div></div>
@@ -97,12 +84,13 @@
         <h3 id="fee-modes">مقادیر مجاز <code>fee_mode</code></h3>
         <p>این فیلد مشخص می‌کند چه مقدار از کارمزد تأیید به مبلغ پرداختی مشتری افزوده شود. کارمزد سرویس در زمان ساخت فاکتور از کیف پول پذیرنده رزرو و پس از پرداخت از همان کیف پول کسر می‌شود.</p>
         <div class="status-table">
-          <div><code>customer</code><span>تمام کارمزد به مبلغ مشتری افزوده می‌شود؛ <code>customer_fee_rial = fee_amount_rial</code>.</span></div>
-          <div><code>split</code><span>نیمی از کارمزد به مبلغ مشتری افزوده می‌شود؛ <code>customer_fee_rial = floor(fee_amount_rial / 2)</code>.</span></div>
-          <div><code>merchant</code><span>چیزی به مبلغ مشتری افزوده نمی‌شود و پذیرنده تمام هزینه را از کیف پول می‌پردازد.</span></div>
-          <div><code>null / حذف فیلد</code><span>سیاست کارمزد ثبت‌شده برای حساب پذیرنده استفاده می‌شود.</span></div>
+          <div><code>merchant</code><span>کارمزد کامل از کیف پول پذیرنده رزرو و پس از تأیید کسر می‌شود؛ مبلغی بابت کارمزد به مشتری افزوده نمی‌شود.</span></div>
+          <div><code>customer</code><span>کارمزد کامل همچنان از کیف پول پذیرنده تسویه می‌شود، اما همان مقدار روی مبلغ پرداخت مشتری افزوده می‌شود؛ <code>customer_fee_rial = fee_amount_rial</code>.</span></div>
+          <div><code>split</code><span>نصف کارمزد روی مبلغ مشتری افزوده می‌شود و نصف دیگر بر عهده پذیرنده می‌ماند؛ <code>customer_fee_rial = floor(fee_amount_rial / 2)</code>.</span></div>
+          <div><code>default</code><span>تنظیم پیش‌فرض حساب پذیرنده را اعمال می‌کند. حذف فیلد یا ارسال <code>null</code> نیز دقیقاً همین رفتار را دارد.</span></div>
+          <div><code>free</code><span><b>مقدار مجاز API نیست.</b> رایگان‌بودن فقط زمانی فعال است که مدیر کارمزد حساب را روی صفر قرار داده باشد؛ پذیرنده نمی‌تواند با پارامتر درخواست، کارمزد را دور بزند.</span></div>
         </div>
-        <div class="notice">اگر مبلغ کارمزد حساب روی صفر باشد، سرویس رایگان است؛ چیزی رزرو یا کسر نمی‌شود و انتخاب <code>fee_mode</code> اثر مالی ندارد.</div>
+        <div class="notice">اگر مبلغ کارمزد حساب روی صفر باشد، فاکتور بدون رزرو یا کسر کارمزد ساخته می‌شود. در پاسخ فاکتور، <code>fee_amount_rial</code> و <code>customer_fee_rial</code> برابر صفر خواهند بود.</div>
         <pre><code>payable_amount_rial = base_amount_rial + customer_fee_rial + unique_amount_rial</code><button onclick="copyPre(this)">کپی</button></pre>
 
         <h3 id="invoice-limits">محدوده فاکتور و پارامترهای درخواست</h3>
@@ -110,7 +98,7 @@
           <div><code>amount_toman</code><span>عدد صحیح؛ حداقل ۱٬۰۰۰ و حداکثر ۵۰۰٬۰۰۰٬۰۰۰ تومان.</span></div>
           <div><code>order_id</code><span>اختیاری، حداکثر ۱۲۰ نویسه؛ در هر فروشگاه نباید تکراری باشد.</span></div>
           <div><code>description</code><span>اختیاری، حداکثر ۵۰۰ نویسه.</span></div>
-          <div><code>fee_mode</code><span>اختیاری؛ فقط <code>customer</code>، <code>split</code> یا <code>merchant</code>.</span></div>
+          <div><code>fee_mode</code><span>اختیاری؛ <code>merchant</code>، <code>customer</code>، <code>split</code> یا <code>default</code>. مقدار <code>free</code> پذیرفته نمی‌شود.</span></div>
           <div><code>card_id</code><span>اختیاری؛ باید شناسه یک کارت فعال متعلق به همان پذیرنده باشد.</span></div>
           <div><code>callback_url</code><span>اختیاری؛ فقط HTTPS عمومی و قابل دسترس از اینترنت پذیرفته می‌شود.</span></div>
           <div><code>ttl_minutes</code><span>اختیاری؛ حداقل ۵ و حداکثر ۱٬۴۴۰ دقیقه. در صورت حذف، مقدار پیش‌فرض سامانه استفاده می‌شود.</span></div>
@@ -207,19 +195,27 @@ echo $invoice['payment_url'];</code><button onclick="copyPre(this)">کپی</butt
 
       <section class="card" id="rate-limit">
         <div class="section-title"><div class="icon-box">⏱</div><div><h2>Rate Limit و سیاست ارسال درخواست</h2><p>وضعیت دقیق محدودیت در نسخه فعلی</p></div></div>
-        <div class="notice warning"><b>نسخه 0.5.2 محدودیت ثابت در سطح برنامه اعمال نمی‌کند.</b> در نتیجه هدرهای <code>X-RateLimit-Limit</code>، <code>X-RateLimit-Remaining</code> و <code>Retry-After</code> توسط خود بلوپی تولید نمی‌شوند و پاسخ <code>429</code> جزو قرارداد فعلی برنامه نیست.</div>
-        <p>بااین‌حال، Railway، پراکسی یا لایه شبکه ممکن است مستقل از برنامه درخواست را محدود یا قطع کند. کلاینت باید خطاهای شبکه، <code>429</code> زیرساخت و خطاهای موقت <code>5xx</code> را مدیریت کند.</p>
+        <div class="notice"><b>Rate Limit در نسخه {{ app_version }} فعال است.</b> پنجره همه سهمیه‌ها ۶۰ ثانیه است و هر درخواست می‌تواند هم‌زمان در چند سهمیه شمارش شود؛ عبور از هرکدام پاسخ <code>429</code> ایجاد می‌کند.</div>
         <div class="status-table">
-          <div><code>POST /invoices</code><span>تلاش خودکار کورکورانه توصیه نمی‌شود. برای هر سفارش یک <code>order_id</code> پایدار بفرستید تا ساخت تکراری با پاسخ ۴۰۹ مشخص شود.</span></div>
-          <div><code>GET /invoices/{id}</code><span>برای استعلام می‌توان از Backoff تدریجی استفاده کرد و از Polling بسیار سریع پرهیز کرد.</span></div>
-          <div><code>Timeout پیشنهادی</code><span>برای درخواست API حداقل ۱۵ ثانیه در نظر بگیرید.</span></div>
+          <div><code>هر API Key</code><span>حداکثر ۱۲۰ درخواست در دقیقه روی مجموع مسیرهای <code>/api/v1</code>.</span></div>
+          <div><code>ساخت فاکتور</code><span>حداکثر ۳۰ درخواست در دقیقه برای <code>POST /api/v1/invoices</code> به‌ازای هر API Key.</span></div>
+          <div><code>هر IP</code><span>حداکثر ۳۰۰ درخواست در دقیقه روی مجموع مسیرهای <code>/api/v1</code>.</span></div>
+          <div><code>پنجره</code><span>Fixed Window شصت‌ثانیه‌ای؛ شمارنده در ابتدای پنجره بعدی صفر می‌شود.</span></div>
         </div>
-        <div class="notice">نبود Rate Limit داخلی به معنی تضمین ظرفیت نامحدود نیست. در نسخه‌ای که محدودیت رسمی اضافه شود، عددها و هدرهای آن باید به‌عنوان تغییر قرارداد API اعلام شوند.</div>
+        <h3>هدرهای سهمیه</h3>
+        <div class="status-table">
+          <div><code>X-RateLimit-Limit</code><span>حد سهمیه فعال و محدودکننده‌تر برای همین پاسخ.</span></div>
+          <div><code>X-RateLimit-Remaining</code><span>تعداد درخواست باقی‌مانده در پنجره جاری.</span></div>
+          <div><code>X-RateLimit-Reset</code><span>زمان پایان پنجره به‌صورت Unix timestamp.</span></div>
+          <div><code>X-RateLimit-Scope</code><span>یکی از <code>ip</code>، <code>api_key</code> یا <code>invoice_create</code>.</span></div>
+          <div><code>Retry-After</code><span>فقط در پاسخ ۴۲۹؛ تعداد ثانیه تا امکان تلاش مجدد.</span></div>
+        </div>
+        <div class="notice warning">این Rate Limit در حافظه همان Process اجرا می‌شود؛ با Deploy یا Restart صفر می‌شود و در صورت اجرای چند Replica، سهمیه هر Replica جداست. برای سهمیه سراسری چندریپلیکا باید Redis یا Gateway توزیع‌شده اضافه شود.</div>
       </section>
 
       <section class="card" id="sandbox">
         <div class="section-title"><div class="icon-box">🧪</div><div><h2>محیط Sandbox</h2><p>تفکیک تست از پرداخت واقعی</p></div></div>
-        <div class="notice danger"><b>در نسخه 0.5.2 محیط Sandbox مستقل وجود ندارد.</b> آدرس API، صفحه پرداخت، کارت مقصد و تطبیق پیامک همگی به محیط واقعی متصل‌اند.</div>
+        <div class="notice danger"><b>در نسخه {{ app_version }} محیط Sandbox مستقل وجود ندارد.</b> آدرس API، صفحه پرداخت، کارت مقصد و تطبیق پیامک همگی به محیط واقعی متصل‌اند.</div>
         <p>ساخت «فروشگاه آزمایشی» یا «کلید API تست» فقط دسترسی و گزارش‌ها را جدا می‌کند؛ فاکتور ساخته‌شده همچنان واقعی است و واریز بانکی واقعی می‌تواند آن را تأیید کند.</p>
         <div class="status-table">
           <div><code>webhook.test</code><span>از داخل ربات قابل ارسال است و بدون پرداخت واقعی فقط اتصال Callback و امضا را آزمایش می‌کند.</span></div>
@@ -322,13 +318,14 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       <section class="card" id="sms-webhook">
         <div class="section-title"><div class="icon-box">📲</div><div><h2>وبهوک اختصاصی پیامک بانکی</h2><p>هر پذیرنده یک URL مستقل و محرمانه دارد</p></div></div>
         <div class="endpoint"><span class="method post">POST</span><code>{{ sms_webhook_url }}</code></div>
+        <div class="notice warning">توکن واقعی عمداً در این صفحه پنهان شده است. URL کامل را فقط از «اتصال و API ← وبهوک پیامک» داخل ربات دریافت کنید. در صورت افشا، همان‌جا گزینه «تعویض توکن امنیتی وبهوک» را بزنید.</div>
         <h3>بدنه استاندارد SMS Forwarder</h3>
         <pre><code>{"device_id":"phone-1","sender":"{in-number}","message":"{msg}","received_time":"{time}","incoming_sim":"{in-sim}"}</code><button onclick="copyPre(this)">کپی JSON</button></pre>
         <div class="notice warning"><b>مهم:</b> متغیرهای <code>{in-number}</code>، <code>{msg}</code>، <code>{time}</code> و <code>{in-sim}</code> را با دکمه <b>{}</b> خود برنامه درج کن. Retry پیام‌های قدیمی ممکن است بدنه ذخیره‌شده قبلی را دوباره ارسال کند.</div>
         <div class="steps-list">
           <div><b>۱</b><span>در برنامه SMS Forwarder یک Filter یا Rule برای پیامک‌های بانکی ایجاد کنید.</span></div>
           <div><b>۲</b><span>مقصد را Webhook URL و روش ارسال را <code>POST</code> انتخاب کنید.</span></div>
-          <div><b>۳</b><span>Webhook اختصاصی بالا را بدون تغییر وارد کنید.</span></div>
+          <div><b>۳</b><span>URL کامل وبهوک را از داخل ربات کپی و بدون تغییر وارد کنید؛ نشانی ماسک‌شده این صفحه قابل استفاده نیست.</span></div>
           <div><b>۴</b><span>در قسمت Body گزینه <code>JSON</code> را انتخاب و اسکلت JSON بالا را وارد کنید.</span></div>
           <div><b>۵</b><span>داخل مقدار <code>sender</code>، گزینه <b>Incoming Number : {in-number}</b> را از فهرست برنامه درج کن.</span></div>
           <div><b>۶</b><span>داخل مقدار <code>message</code>، گزینه <b>Message Body : {msg}</b> را از فهرست برنامه درج کن.</span></div>
@@ -364,42 +361,69 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       <section class="card" id="errors">
         <div class="section-title"><div class="icon-box">🧭</div><div><h2>ساختار پاسخ خطاها و وضعیت‌ها</h2><p>قرارداد فعلی API برای مدیریت خطا در Backend پذیرنده</p></div></div>
 
-        <h3>خطاهای تجاری و احراز هویت</h3>
-        <p>بیشتر خطاهای API خصوصی با ساختار استاندارد FastAPI بازگردانده می‌شوند. در این پاسخ‌ها فیلد <code>success</code> وجود ندارد.</p>
-        <pre><code>{
-  "detail": "API key نامعتبر یا غیرفعال است"
-}</code><button onclick="copyPre(this)">کپی</button></pre>
-
-        <h3>خطای اعتبارسنجی ورودی — HTTP 422</h3>
-        <pre><code>{
-  "detail": [
-    {
-      "type": "greater_than_equal",
-      "loc": ["body", "amount_toman"],
-      "msg": "Input should be greater than or equal to 1000",
-      "input": 500,
-      "ctx": {"ge": 1000}
-    }
-  ]
-}</code><button onclick="copyPre(this)">کپی</button></pre>
-        <div class="notice">متن و فیلدهای جزئی خطای ۴۲۲ توسط نسخه Pydantic/FastAPI ساخته می‌شوند؛ برای تصمیم‌گیری برنامه‌ای، بیشتر به Status Code و مسیر <code>loc</code> تکیه کنید.</div>
-
-        <h3>خطای بدنه وبهوک پیامک — HTTP 422</h3>
+        <h3>ساختار استاندارد همه خطاهای JSON</h3>
+        <p>تمام خطاهای مسیرهای <code>/api/</code> و <code>/webhooks/</code> با قرارداد ثابت زیر بازگردانده می‌شوند. مقدار <code>request_id</code> در هدر <code>X-Request-ID</code> نیز تکرار می‌شود.</p>
         <pre><code>{
   "success": false,
-  "error": "SMS_TEMPLATE_NOT_RESOLVED",
-  "detail": "متغیرهای SMS Forwarder جایگزین نشده‌اند"
+  "error": {
+    "code": "INVALID_AMOUNT",
+    "message": "مبلغ فاکتور معتبر نیست",
+    "field": "amount_toman",
+    "details": {
+      "min": 1000,
+      "max": 500000000
+    }
+  },
+  "request_id": "req_2b8f5c9d14a04f2a9b67c001",
+  "timestamp": "2026-08-01T10:20:30Z"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="notice">فیلدهای <code>field</code> و <code>details</code> ممکن است <code>null</code> باشند، اما خود آن‌ها همیشه در پاسخ وجود دارند. برای منطق برنامه از <code>error.code</code> استفاده کنید و متن <code>message</code> را فقط برای نمایش یا ثبت لاگ در نظر بگیرید.</div>
+
+        <h3>نمونه خطای اعتبارسنجی — HTTP 422</h3>
+        <pre><code>{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "پارامترهای درخواست معتبر نیستند",
+    "field": "amount_toman",
+    "details": {
+      "errors": [
+        {
+          "type": "greater_than_equal",
+          "loc": ["body", "amount_toman"],
+          "msg": "Input should be greater than or equal to 1000",
+          "input": 500,
+          "ctx": {"ge": 1000}
+        }
+      ]
+    }
+  },
+  "request_id": "req_xxxxx",
+  "timestamp": "2026-08-01T10:20:30Z"
 }</code><button onclick="copyPre(this)">کپی</button></pre>
 
-        <h3>کدهای HTTP قابل انتظار</h3>
+        <h3>نمونه خطای قالب SMS Forwarder — HTTP 422</h3>
+        <pre><code>{
+  "success": false,
+  "error": {
+    "code": "SMS_TEMPLATE_NOT_RESOLVED",
+    "message": "متغیرهای SMS Forwarder جایگزین نشده‌اند",
+    "field": "message",
+    "details": {"preview": "{msg}"}
+  },
+  "request_id": "req_xxxxx",
+  "timestamp": "2026-08-01T10:20:30Z"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>کدهای HTTP و error.code قابل انتظار</h3>
         <div class="status-table">
-          <div><code>400</code><span>خطای تجاری یا تنظیم نامعتبر؛ مانند Callback غیرمجاز، کارت فعال‌نبودن، کمبود موجودی کارمزد یا تکمیل ظرفیت مبلغ‌های یکتا.</span></div>
-          <div><code>401</code><span>API Key، Webhook token یا Secret نامعتبر/غیرفعال.</span></div>
-          <div><code>404</code><span>فاکتور، مستندات اختصاصی یا Webhook موردنظر پیدا نشد یا به فروشگاه این کلید تعلق ندارد.</span></div>
-          <div><code>409</code><span><code>order_id</code> تکراری یا عملیات ناسازگار با وضعیت فعلی فاکتور؛ مانند لغو فاکتور پرداخت‌شده.</span></div>
-          <div><code>422</code><span>ساختار یا مقدار ورودی با Schema سازگار نیست؛ یا بدنه SMS Forwarder هنوز شامل Placeholder است.</span></div>
-          <div><code>429</code><span>در برنامه فعلی تولید نمی‌شود؛ ممکن است از لایه زیرساخت دریافت شود.</span></div>
-          <div><code>500/502/503/504</code><span>خطای داخلی یا موقت زیرساخت؛ درخواست ساخت فاکتور را بدون بررسی نتیجه قبلی تکرار نکنید.</span></div>
+          <div><code>400</code><span><code>BAD_REQUEST</code> یا <code>INVOICE_CREATE_FAILED</code>؛ تنظیم تجاری نامعتبر، کارت فعال‌نبودن، کمبود موجودی کارمزد یا تکمیل ظرفیت مبلغ یکتا.</span></div>
+          <div><code>401</code><span><code>INVALID_API_KEY</code>، <code>INVALID_SMS_WEBHOOK_TOKEN</code> یا <code>INVALID_SMS_WEBHOOK_SECRET</code>.</span></div>
+          <div><code>404</code><span><code>INVOICE_NOT_FOUND</code>، <code>SMS_WEBHOOK_NOT_FOUND</code> یا <code>NOT_FOUND</code>.</span></div>
+          <div><code>409</code><span><code>ORDER_ID_CONFLICT</code> یا <code>INVOICE_NOT_CANCELLABLE</code>.</span></div>
+          <div><code>422</code><span><code>VALIDATION_ERROR</code> یا <code>SMS_TEMPLATE_NOT_RESOLVED</code>.</span></div>
+          <div><code>429</code><span><code>RATE_LIMITED</code> همراه هدر <code>Retry-After</code> و جزئیات سهمیه.</span></div>
+          <div><code>500/502/503/504</code><span><code>INTERNAL_ERROR</code> برای خطای برنامه؛ ۵۰۲ تا ۵۰۴ ممکن است از زیرساخت Railway یا Proxy صادر شوند و قالب آن‌ها خارج از کنترل برنامه باشد.</span></div>
         </div>
 
         <h3>وضعیت‌های فاکتور</h3>

@@ -128,8 +128,18 @@ def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
 def sms_webhook_menu(docs_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 تعویض توکن امنیتی وبهوک", callback_data="sms:webhook:rotate")],
             [InlineKeyboardButton(text="📖 آموزش تصویری SMS Forwarder", url=docs_url + "#sms-webhook")],
             [InlineKeyboardButton(text="‹ بازگشت به مرکز اتصال", callback_data="connect")],
+        ]
+    )
+
+
+def sms_webhook_rotate_confirm_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ تأیید و تعویض توکن", callback_data="sms:webhook:rotate:confirm")],
+            [InlineKeyboardButton(text="انصراف", callback_data="sms:webhook")],
         ]
     )
 

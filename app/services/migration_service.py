@@ -26,6 +26,12 @@ async def run_runtime_migrations(engine: AsyncEngine) -> None:
             )
             changed = (update.rowcount or 0) > 0
 
+        if "sms_token_version" not in merchant_columns:
+            await connection.execute(
+                text("ALTER TABLE merchants ADD COLUMN sms_token_version INTEGER NOT NULL DEFAULT 1")
+            )
+            changed = True
+
         invoice_result = await connection.execute(text("PRAGMA table_info(invoices)"))
         invoice_columns = {str(row[1]) for row in invoice_result.fetchall()}
         if "unique_amount_rial" not in invoice_columns:

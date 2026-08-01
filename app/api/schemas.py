@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -22,13 +24,13 @@ class CreateInvoiceRequest(BaseModel):
         description="شرح قابل نمایش فاکتور",
         examples=["اشتراک یک‌ماهه"],
     )
-    fee_mode: str | None = Field(
+    fee_mode: Literal["customer", "split", "merchant", "default"] | None = Field(
         default=None,
-        pattern="^(customer|split|merchant)$",
         description=(
             "نحوه تقسیم هزینه تأیید: customer تمام کارمزد را به مبلغ مشتری اضافه می‌کند؛ "
-            "split نصف آن را اضافه می‌کند؛ merchant چیزی به مبلغ مشتری اضافه نمی‌کند. "
-            "در صورت حذف، پیش‌فرض حساب پذیرنده استفاده می‌شود."
+            "split نصف آن را اضافه می‌کند؛ merchant چیزی به مبلغ مشتری اضافه نمی‌کند؛ "
+            "default یا حذف فیلد، تنظیم پیش‌فرض پذیرنده را اعمال می‌کند. مقدار free از API پذیرفته نمی‌شود؛ "
+            "رایگان‌بودن سرویس فقط از تنظیم کارمزد صفر توسط مدیر تعیین می‌شود."
         ),
         examples=["split"],
     )

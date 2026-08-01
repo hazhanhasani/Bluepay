@@ -795,7 +795,7 @@ async def admin_merchant_detail(callback: CallbackQuery):
             f"🔑 کلیدهای API فعال: <b>{active_key_count:,}</b>",
             f"🔔 Callback عمومی: <code>{esc(short(merchant.callback_url, 46))}</code>",
             f"📲 وبهوک پیامک:\n<code>{esc(merchant_sms_webhook_url(merchant))}</code>",
-            f"📚 مستندات:\n<code>{esc(merchant_docs_url(merchant))}</code>",
+            f"📚 مستندات عمومی API:\n<code>{esc(merchant_docs_url(merchant))}</code>",
             "",
             f"📊 کارت‌ها: <b>{cards_count:,}</b>  •  فاکتورها: <b>{invoice_count:,}</b>  •  موفق: <b>{paid_count:,}</b>",
         ],

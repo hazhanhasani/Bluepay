@@ -28,6 +28,7 @@ from app.bot.keyboards import (
     main_menu,
     payment_created_menu,
     sms_webhook_menu,
+    sms_webhook_rotate_confirm_menu,
     store_detail_menu,
     stores_menu,
     wallet_menu,
@@ -64,7 +65,7 @@ from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
 from app.services.callback_service import send_paid_callback, send_store_test_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
-from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
+from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url, rotate_merchant_sms_token
 from app.services.invoice_service import (
     calculate_customer_fee,
     confirm_invoice_paid,
@@ -1073,7 +1074,7 @@ async def connection_panel(callback: CallbackQuery):
             "3️⃣ Callback اختصاصی همان فروشگاه را ثبت و آزمایش کنید.",
             "4️⃣ کلید هر فروشگاه را فقط در Backend همان پروژه نگه دارید.",
             "",
-            f"📘 مستندات حساب:\n<code>{esc(docs_url)}</code>",
+            f"📘 مستندات عمومی API:\n<code>{esc(docs_url)}</code>",
         ],
         subtitle="مدیریت چند فروشگاه، چند API و Callback مستقل",
         footer="وبهوک پیامک در سطح پذیرنده مشترک است؛ API و Callback برای هر فروشگاه جدا مدیریت می‌شوند.",
@@ -1552,6 +1553,49 @@ async def sms_info(callback: CallbackQuery):
     )
     await callback.message.edit_text(text, reply_markup=sms_webhook_menu(docs_url))
     await callback.answer()
+
+
+
+@router.callback_query(F.data == "sms:webhook:rotate")
+async def sms_webhook_rotate_start(callback: CallbackQuery):
+    merchant = await current_merchant(callback.from_user.id)
+    if not merchant:
+        return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+    await callback.message.edit_text(
+        warning(
+            "تعویض توکن امنیتی وبهوک پیامک",
+            "با انجام این عملیات، نشانی فعلی وبهوک بلافاصله نامعتبر می‌شود و باید URL جدید را در SMS Forwarder جایگزین کنید.",
+            footer="این عملیات روی API Keyها و Secret امضای Callback اثری ندارد.",
+        ),
+        reply_markup=sms_webhook_rotate_confirm_menu(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "sms:webhook:rotate:confirm")
+async def sms_webhook_rotate_confirm(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده یافت نشد.", show_alert=True)
+        rotate_merchant_sms_token(merchant)
+        await session.commit()
+        new_url = merchant_sms_webhook_url(merchant)
+        docs_url = merchant_docs_url(merchant)
+    await callback.message.edit_text(
+        success(
+            "توکن وبهوک پیامک تعویض شد",
+            "\n".join([
+                "نشانی قبلی دیگر معتبر نیست.",
+                "",
+                "<b>نشانی محرمانه جدید</b>",
+                f"<code>{esc(new_url)}</code>",
+            ]),
+            footer="URL جدید را فقط در برنامه SMS Forwarder ثبت کنید و از انتشار آن خودداری کنید.",
+        ),
+        reply_markup=sms_webhook_menu(docs_url),
+    )
+    await callback.answer("توکن جدید فعال شد.")
 
 @router.callback_query(F.data == "callback:panel")
 async def callback_panel(callback: CallbackQuery):

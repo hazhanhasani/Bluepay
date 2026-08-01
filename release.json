@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.5.2",
+  "version": "0.5.4",
   "min_version": "0.2.3",
-  "description": "تکمیل قرارداد مستندات API شامل مقادیر fee_mode، محدوده مبلغ و TTL، ساختار کامل خطاها، زمان‌بندی دقیق Callback، وضعیت واقعی Rate Limit و اعلام شفاف نبود Sandbox مستقل",
-  "run_migrations": false
+  "description": "حذف کامل اطلاعات اختصاصی پذیرنده از مستندات عمومی و انتقال دریافت کلیدها، شناسه‌ها، Callback Secret و URL محرمانه وبهوک پیامک به بخش‌های احرازشده داخل ربات",
+  "run_migrations": true
 }

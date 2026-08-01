@@ -19,7 +19,10 @@ def _derived_token(merchant: Merchant, purpose: str, length: int = 40) -> str:
 
 
 def merchant_sms_token(merchant: Merchant) -> str:
-    return _derived_token(merchant, "sms-webhook")
+    version = int(getattr(merchant, "sms_token_version", 1) or 1)
+    # Keep existing installations compatible until the owner explicitly rotates.
+    purpose = "sms-webhook" if version <= 1 else f"sms-webhook:v{version}"
+    return _derived_token(merchant, purpose)
 
 
 def merchant_docs_token(merchant: Merchant) -> str:
@@ -30,8 +33,14 @@ def merchant_sms_webhook_url(merchant: Merchant) -> str:
     return f"{settings.base_url}/webhooks/sms/{merchant.id}/{merchant_sms_token(merchant)}"
 
 
-def merchant_docs_url(merchant: Merchant) -> str:
-    return f"{settings.base_url}/developers/{merchant.id}/{merchant_docs_token(merchant)}"
+def merchant_docs_url(merchant: Merchant | None = None) -> str:
+    """Return the public documentation URL.
+
+    Merchant credentials and identifiers are intentionally never embedded in a
+    documentation link. Sensitive or account-specific integration data is
+    available only inside the authenticated Telegram bot.
+    """
+    return f"{settings.base_url}/developers"
 
 
 def verify_merchant_token(merchant: Merchant, purpose: str, supplied: str) -> bool:
@@ -41,3 +50,8 @@ def verify_merchant_token(merchant: Merchant, purpose: str, supplied: str) -> bo
         length=32 if purpose == "developer-docs" else 40,
     )
     return hmac.compare_digest(expected, supplied)
+
+
+def rotate_merchant_sms_token(merchant: Merchant) -> int:
+    merchant.sms_token_version = max(1, int(getattr(merchant, "sms_token_version", 1) or 1)) + 1
+    return merchant.sms_token_version

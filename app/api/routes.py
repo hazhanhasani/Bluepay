@@ -7,14 +7,14 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import ApiContext, api_context
+from app.api.errors import error_response
 from app.api.schemas import CreateInvoiceRequest
 from app.core.config import settings
 from app.core.security import decrypt_text
@@ -24,7 +24,6 @@ from app.models import Invoice, Merchant, Store
 from app.parsers import BANK_PROFILES, bank_label
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import (
-    merchant_docs_token,
     merchant_docs_url,
     merchant_sms_token,
     merchant_sms_webhook_url,
@@ -61,6 +60,7 @@ def invoice_payload(invoice: Invoice) -> dict:
         "order_id": invoice.client_order_id or invoice.order_id,
         "status": invoice.status,
         "purpose": invoice.purpose,
+        "fee_mode": invoice.fee_mode,
         "base_amount_rial": invoice.base_amount_rial,
         "fee_amount_rial": invoice.fee_amount_rial,
         "customer_fee_rial": invoice.customer_fee_rial,
@@ -100,49 +100,25 @@ async def developer_docs(request: Request):
         {
             "request": request,
             "base_url": settings.base_url,
-            "merchant": None,
-            "sms_webhook_url": f"{settings.base_url}/webhooks/sms/MERCHANT_ID/UNIQUE_TOKEN",
-            "api_prefix": "gw_...",
-            "callback_url": "https://example.com/bluepay/webhook",
-            "stores": [],
+            "sms_webhook_url": f"{settings.base_url}/webhooks/sms/MERCHANT_ID/••••••••••••",
             "banks": BANK_PROFILES,
+            "app_version": APP_VERSION,
+            "docs_contract_version": "2026-08-01.2",
         },
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache"},
     )
 
 
-@router.get("/developers/{merchant_id}/{token}", response_class=HTMLResponse)
-async def personalized_developer_docs(
-    request: Request,
-    merchant_id: int,
-    token: str,
-    session: AsyncSession = Depends(get_session),
-):
-    merchant = await session.get(Merchant, merchant_id)
-    if not merchant or not merchant.is_active or not merchant.callback_secret:
-        raise HTTPException(status_code=404, detail="مستندات پذیرنده یافت نشد")
-    if not hmac.compare_digest(token, merchant_docs_token(merchant)):
-        raise HTTPException(status_code=404, detail="مستندات پذیرنده یافت نشد")
-    stores = list((await session.scalars(
-        select(Store)
-        .where(Store.merchant_id == merchant.id)
-        .options(selectinload(Store.api_keys))
-        .order_by(Store.is_active.desc(), Store.id.asc())
-    )).all())
-    first_prefix = next(
-        (key.key_prefix for store in stores for key in store.api_keys if key.is_active),
-        merchant.api_key_prefix or "هنوز ساخته نشده",
-    )
-    return templates.TemplateResponse(
-        "developers.html",
-        {
-            "request": request,
-            "base_url": settings.base_url,
-            "merchant": merchant,
-            "sms_webhook_url": merchant_sms_webhook_url(merchant),
-            "api_prefix": first_prefix,
-            "callback_url": merchant.callback_url or "هنوز تنظیم نشده",
-            "stores": stores,
-            "banks": BANK_PROFILES,
+@router.get("/developers/{merchant_id}/{token}", include_in_schema=False)
+async def legacy_personalized_developer_docs(merchant_id: int, token: str):
+    """Retire old personalized documentation links without exposing account data."""
+    return RedirectResponse(
+        url=f"{settings.base_url}/developers",
+        status_code=307,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
         },
     )
 
@@ -241,10 +217,10 @@ async def api_create_invoice(
         return {"success": True, **payload}
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="order_id قبلاً استفاده شده است")
+        raise HTTPException(status_code=409, detail={"code": "ORDER_ID_CONFLICT", "message": "order_id قبلاً در این فروشگاه استفاده شده است", "field": "order_id"})
     except ValueError as exc:
         await session.rollback()
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail={"code": "INVOICE_CREATE_FAILED", "message": str(exc)})
 
 
 @router.get("/api/v1/invoices/{token}")
@@ -258,7 +234,7 @@ async def api_invoice_status(
         conditions.append(Invoice.store_id == context.store.id)
     invoice = await session.scalar(select(Invoice).where(*conditions))
     if not invoice:
-        raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
+        raise HTTPException(status_code=404, detail={"code": "INVOICE_NOT_FOUND", "message": "فاکتور یافت نشد"})
     payload = invoice_payload(invoice)
     if context.store:
         payload.update({"store_code": context.store.code, "store_name": context.store.name})
@@ -276,9 +252,9 @@ async def api_cancel_invoice(
         conditions.append(Invoice.store_id == context.store.id)
     invoice = await session.scalar(select(Invoice).where(*conditions))
     if not invoice:
-        raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
+        raise HTTPException(status_code=404, detail={"code": "INVOICE_NOT_FOUND", "message": "فاکتور یافت نشد"})
     if invoice.status != "pending":
-        raise HTTPException(status_code=409, detail=f"فاکتور در وضعیت {invoice.status} قابل لغو نیست")
+        raise HTTPException(status_code=409, detail={"code": "INVOICE_NOT_CANCELLABLE", "message": f"فاکتور در وضعیت {invoice.status} قابل لغو نیست", "details": {"status": invoice.status}})
     await release_invoice_reservation(session, invoice, "cancelled")
     await session.commit()
     payload = invoice_payload(invoice)
@@ -352,9 +328,9 @@ async def merchant_sms_webhook(
 ):
     merchant = await session.get(Merchant, merchant_id)
     if not merchant or not merchant.is_active or not merchant.callback_secret:
-        raise HTTPException(status_code=404, detail="Webhook یافت نشد")
+        raise HTTPException(status_code=404, detail={"code": "SMS_WEBHOOK_NOT_FOUND", "message": "Webhook یافت نشد"})
     if not hmac.compare_digest(token, merchant_sms_token(merchant)):
-        raise HTTPException(status_code=401, detail="Webhook token نامعتبر است")
+        raise HTTPException(status_code=401, detail={"code": "INVALID_SMS_WEBHOOK_TOKEN", "message": "Webhook token نامعتبر است"})
 
     try:
         sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
@@ -366,13 +342,13 @@ async def merchant_sms_webhook(
             exc.detail,
             exc.preview,
         )
-        return JSONResponse(
+        return error_response(
+            request,
             status_code=422,
-            content={
-                "success": False,
-                "error": exc.code,
-                "detail": exc.detail,
-            },
+            code=exc.code,
+            message=exc.detail,
+            field="message",
+            details={"preview": exc.preview[:240] if exc.preview else None},
         )
 
     sms, invoice, diagnostic = await ingest_sms(
@@ -422,14 +398,18 @@ async def legacy_sms_webhook(
     """
     expected = await get_setting(session, "sms_webhook_secret")
     if not expected or not hmac.compare_digest(x_sms_secret, expected):
-        raise HTTPException(status_code=401, detail="Webhook secret نامعتبر است")
+        raise HTTPException(status_code=401, detail={"code": "INVALID_SMS_WEBHOOK_SECRET", "message": "Webhook secret نامعتبر است"})
 
     try:
         sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
     except SmsPayloadError as exc:
-        return JSONResponse(
+        return error_response(
+            request,
             status_code=422,
-            content={"success": False, "error": exc.code, "detail": exc.detail},
+            code=exc.code,
+            message=exc.detail,
+            field="message",
+            details={"preview": exc.preview[:240] if exc.preview else None},
         )
     sms, invoice, diagnostic = await ingest_sms(session, sender, message, device_id, bank_hint=bank_code)
     await session.commit()

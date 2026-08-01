@@ -48,7 +48,7 @@ async def api_context(
     )
     if merchant:
         return ApiContext(merchant=merchant, legacy=True)
-    raise HTTPException(status_code=401, detail="API key نامعتبر یا غیرفعال است")
+    raise HTTPException(status_code=401, detail={"code": "INVALID_API_KEY", "message": "API key نامعتبر یا غیرفعال است"})
 
 
 async def api_merchant(context: ApiContext = Depends(api_context)) -> Merchant:

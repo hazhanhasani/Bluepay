@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models import AmountReservation, BankCard, Invoice, Merchant, WalletLedger
 
 VALID_FEE_MODES = {"customer", "split", "merchant"}
+API_FEE_MODES = VALID_FEE_MODES | {"default"}
 UNIQUE_AMOUNT_MIN_TOMAN = 1
 UNIQUE_AMOUNT_MAX_TOMAN = 999
 WALLET_TOPUP_MIN_RIAL = 100_000  # 10,000 toman
@@ -100,9 +101,9 @@ async def create_invoice(
 ) -> Invoice:
     if base_amount_rial < 10_000:
         raise ValueError("مبلغ فاکتور باید حداقل ۱٬۰۰۰ تومان باشد")
-    fee_mode = fee_mode or merchant.fee_mode
+    fee_mode = merchant.fee_mode if fee_mode in {None, "default"} else fee_mode
     if fee_mode not in VALID_FEE_MODES:
-        raise ValueError("حالت کارمزد نامعتبر است")
+        raise ValueError("حالت کارمزد نامعتبر است؛ مقادیر مجاز customer، split، merchant و default هستند")
 
     locked = await session.scalar(select(Merchant).where(Merchant.id == merchant.id).with_for_update())
     if not locked or not locked.is_active:

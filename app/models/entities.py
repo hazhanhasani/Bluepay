@@ -25,6 +25,7 @@ class Merchant(TimestampMixin, Base):
     api_key_prefix: Mapped[str | None] = mapped_column(String(16), nullable=True)
     callback_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     callback_secret: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    sms_token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
     cards: Mapped[list[BankCard]] = relationship(back_populates="merchant", cascade="all, delete-orphan")
     invoices: Mapped[list[Invoice]] = relationship(back_populates="merchant", foreign_keys="Invoice.merchant_id")
