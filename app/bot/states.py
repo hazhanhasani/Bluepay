@@ -44,3 +44,7 @@ class StoreCreateState(StatesGroup):
 
 class StoreCallbackState(StatesGroup):
     url = State()
+
+
+class AdminAppearanceEmojiState(StatesGroup):
+    emoji = State()

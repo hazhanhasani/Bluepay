@@ -28,6 +28,10 @@
       <a href="#credentials">اطلاعات اتصال</a>
       <a href="#stores">فروشگاه‌ها و کلیدها</a>
       <a href="#api">API فاکتور</a>
+      <a href="#fee-modes">مقادیر fee_mode</a>
+      <a href="#invoice-limits">محدوده مبلغ و زمان</a>
+      <a href="#rate-limit">Rate Limit</a>
+      <a href="#sandbox">محیط Sandbox</a>
       <a href="#bot-example">اتصال ربات تلگرام</a>
       <a href="#callback">Callback پرداخت</a>
       <a href="#sms-webhook">وبهوک پیامک</a>
@@ -88,7 +92,31 @@
         <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
         <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
         <div class="notice">هر کلید به یک فروشگاه مشخص متصل است. کلید فروشگاه دیگر امکان استعلام یا لغو فاکتورهای این فروشگاه را ندارد. کلید را فقط در Backend نگه دارید.</div>
-        <div class="notice warning">برای سایت اصلی، ربات، برنامه حسابداری و محیط تست، کلیدهای مجزا بسازید تا قطع یک دسترسی روی اتصال‌های دیگر اثر نگذارد.</div>
+        <div class="notice warning">کلید جداگانه فقط دسترسی‌ها را تفکیک می‌کند و به‌معنای Sandbox نیست. تمام فاکتورهای ساخته‌شده در این نشانی، واقعی هستند.</div>
+
+        <h3 id="fee-modes">مقادیر مجاز <code>fee_mode</code></h3>
+        <p>این فیلد مشخص می‌کند چه مقدار از کارمزد تأیید به مبلغ پرداختی مشتری افزوده شود. کارمزد سرویس در زمان ساخت فاکتور از کیف پول پذیرنده رزرو و پس از پرداخت از همان کیف پول کسر می‌شود.</p>
+        <div class="status-table">
+          <div><code>customer</code><span>تمام کارمزد به مبلغ مشتری افزوده می‌شود؛ <code>customer_fee_rial = fee_amount_rial</code>.</span></div>
+          <div><code>split</code><span>نیمی از کارمزد به مبلغ مشتری افزوده می‌شود؛ <code>customer_fee_rial = floor(fee_amount_rial / 2)</code>.</span></div>
+          <div><code>merchant</code><span>چیزی به مبلغ مشتری افزوده نمی‌شود و پذیرنده تمام هزینه را از کیف پول می‌پردازد.</span></div>
+          <div><code>null / حذف فیلد</code><span>سیاست کارمزد ثبت‌شده برای حساب پذیرنده استفاده می‌شود.</span></div>
+        </div>
+        <div class="notice">اگر مبلغ کارمزد حساب روی صفر باشد، سرویس رایگان است؛ چیزی رزرو یا کسر نمی‌شود و انتخاب <code>fee_mode</code> اثر مالی ندارد.</div>
+        <pre><code>payable_amount_rial = base_amount_rial + customer_fee_rial + unique_amount_rial</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3 id="invoice-limits">محدوده فاکتور و پارامترهای درخواست</h3>
+        <div class="status-table">
+          <div><code>amount_toman</code><span>عدد صحیح؛ حداقل ۱٬۰۰۰ و حداکثر ۵۰۰٬۰۰۰٬۰۰۰ تومان.</span></div>
+          <div><code>order_id</code><span>اختیاری، حداکثر ۱۲۰ نویسه؛ در هر فروشگاه نباید تکراری باشد.</span></div>
+          <div><code>description</code><span>اختیاری، حداکثر ۵۰۰ نویسه.</span></div>
+          <div><code>fee_mode</code><span>اختیاری؛ فقط <code>customer</code>، <code>split</code> یا <code>merchant</code>.</span></div>
+          <div><code>card_id</code><span>اختیاری؛ باید شناسه یک کارت فعال متعلق به همان پذیرنده باشد.</span></div>
+          <div><code>callback_url</code><span>اختیاری؛ فقط HTTPS عمومی و قابل دسترس از اینترنت پذیرفته می‌شود.</span></div>
+          <div><code>ttl_minutes</code><span>اختیاری؛ حداقل ۵ و حداکثر ۱٬۴۴۰ دقیقه. در صورت حذف، مقدار پیش‌فرض سامانه استفاده می‌شود.</span></div>
+          <div><code>unique_amount_rial</code><span>سامانه به‌طور خودکار ۱ تا ۹۹۹ تومان کد تطبیق به مبلغ نهایی اضافه می‌کند.</span></div>
+        </div>
+        <div class="notice warning">حداکثر ۵۰۰ میلیون تومان مربوط به مبلغ پایه فاکتور است. مبلغ نهایی ممکن است به‌اندازه سهم کارمزد مشتری و کد تطبیق یکتا بیشتر باشد.</div>
 
         <h3>ساخت فاکتور</h3>
         <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices</code></div>
@@ -177,6 +205,29 @@ $invoice = json_decode($result, true);
 echo $invoice['payment_url'];</code><button onclick="copyPre(this)">کپی</button></pre>
       </section>
 
+      <section class="card" id="rate-limit">
+        <div class="section-title"><div class="icon-box">⏱</div><div><h2>Rate Limit و سیاست ارسال درخواست</h2><p>وضعیت دقیق محدودیت در نسخه فعلی</p></div></div>
+        <div class="notice warning"><b>نسخه 0.5.2 محدودیت ثابت در سطح برنامه اعمال نمی‌کند.</b> در نتیجه هدرهای <code>X-RateLimit-Limit</code>، <code>X-RateLimit-Remaining</code> و <code>Retry-After</code> توسط خود بلوپی تولید نمی‌شوند و پاسخ <code>429</code> جزو قرارداد فعلی برنامه نیست.</div>
+        <p>بااین‌حال، Railway، پراکسی یا لایه شبکه ممکن است مستقل از برنامه درخواست را محدود یا قطع کند. کلاینت باید خطاهای شبکه، <code>429</code> زیرساخت و خطاهای موقت <code>5xx</code> را مدیریت کند.</p>
+        <div class="status-table">
+          <div><code>POST /invoices</code><span>تلاش خودکار کورکورانه توصیه نمی‌شود. برای هر سفارش یک <code>order_id</code> پایدار بفرستید تا ساخت تکراری با پاسخ ۴۰۹ مشخص شود.</span></div>
+          <div><code>GET /invoices/{id}</code><span>برای استعلام می‌توان از Backoff تدریجی استفاده کرد و از Polling بسیار سریع پرهیز کرد.</span></div>
+          <div><code>Timeout پیشنهادی</code><span>برای درخواست API حداقل ۱۵ ثانیه در نظر بگیرید.</span></div>
+        </div>
+        <div class="notice">نبود Rate Limit داخلی به معنی تضمین ظرفیت نامحدود نیست. در نسخه‌ای که محدودیت رسمی اضافه شود، عددها و هدرهای آن باید به‌عنوان تغییر قرارداد API اعلام شوند.</div>
+      </section>
+
+      <section class="card" id="sandbox">
+        <div class="section-title"><div class="icon-box">🧪</div><div><h2>محیط Sandbox</h2><p>تفکیک تست از پرداخت واقعی</p></div></div>
+        <div class="notice danger"><b>در نسخه 0.5.2 محیط Sandbox مستقل وجود ندارد.</b> آدرس API، صفحه پرداخت، کارت مقصد و تطبیق پیامک همگی به محیط واقعی متصل‌اند.</div>
+        <p>ساخت «فروشگاه آزمایشی» یا «کلید API تست» فقط دسترسی و گزارش‌ها را جدا می‌کند؛ فاکتور ساخته‌شده همچنان واقعی است و واریز بانکی واقعی می‌تواند آن را تأیید کند.</p>
+        <div class="status-table">
+          <div><code>webhook.test</code><span>از داخل ربات قابل ارسال است و بدون پرداخت واقعی فقط اتصال Callback و امضا را آزمایش می‌کند.</span></div>
+          <div><code>فاکتور تست</code><span>برای آزمایش انتها‌به‌انتها از فروشگاه، کلید و کارت جدا و حداقل مبلغ ۱٬۰۰۰ تومان استفاده کنید؛ وجه واقعی جابه‌جا می‌شود.</span></div>
+          <div><code>کارت/پیامک جعلی</code><span>پشتیبانی نمی‌شود و نباید به وبهوک محیط واقعی ارسال شود.</span></div>
+        </div>
+      </section>
+
       <section class="card" id="bot-example">
         <div class="section-title"><div class="icon-box">🤖</div><div><h2>اتصال ربات تلگرام</h2><p>نمونه ساده با aiogram و httpx</p></div></div>
         <pre><code>from aiogram import Router
@@ -209,7 +260,14 @@ async def buy(message: Message):
 
       <section class="card" id="callback">
         <div class="section-title"><div class="icon-box">🔔</div><div><h2>Callback نتیجه پرداخت</h2><p>وبهوک اختصاصی هر فروشگاه با Secret مستقل</p></div></div>
-        <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. در صورت خطا، ارسال تا سه مرتبه تکرار می‌شود.</p>
+        <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. پاسخ موفق هر کد <code>2xx</code> است؛ Redirect دنبال نمی‌شود و Timeout هر تلاش ۱۲ ثانیه است.</p>
+        <div class="status-table">
+          <div><code>تلاش اول</code><span>بلافاصله پس از تأیید پرداخت.</span></div>
+          <div><code>تلاش دوم</code><span>۲ ثانیه پس از پایان تلاش اول.</span></div>
+          <div><code>تلاش سوم</code><span>۶ ثانیه پس از پایان تلاش دوم؛ در پاسخ‌های سریع تقریباً ۸ ثانیه پس از شروع تلاش اول.</span></div>
+          <div><code>Callback آزمایشی</code><span>فقط یک بار ارسال می‌شود و Retry ندارد.</span></div>
+        </div>
+        <div class="notice">شناسه <code>X-Gateway-Delivery</code>، امضا و Timestamp در سه تلاش یک رویداد ثابت می‌مانند. زمان واقعی کل فرایند با توجه به تأخیر سرور مقصد می‌تواند بیشتر از ۸ ثانیه باشد.</div>
         <div class="chips"><span>X-Gateway-Signature</span><span>X-Gateway-Event</span><span>X-Gateway-Delivery</span><span>X-Gateway-Timestamp</span></div>
         <pre><code>{
   "event": "invoice.paid",
@@ -304,14 +362,52 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
       </section>
 
       <section class="card" id="errors">
-        <div class="section-title"><div class="icon-box">🧭</div><div><h2>وضعیت‌ها و خطاهای رایج</h2><p>برای مدیریت صحیح سمت پذیرنده</p></div></div>
+        <div class="section-title"><div class="icon-box">🧭</div><div><h2>ساختار پاسخ خطاها و وضعیت‌ها</h2><p>قرارداد فعلی API برای مدیریت خطا در Backend پذیرنده</p></div></div>
+
+        <h3>خطاهای تجاری و احراز هویت</h3>
+        <p>بیشتر خطاهای API خصوصی با ساختار استاندارد FastAPI بازگردانده می‌شوند. در این پاسخ‌ها فیلد <code>success</code> وجود ندارد.</p>
+        <pre><code>{
+  "detail": "API key نامعتبر یا غیرفعال است"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>خطای اعتبارسنجی ورودی — HTTP 422</h3>
+        <pre><code>{
+  "detail": [
+    {
+      "type": "greater_than_equal",
+      "loc": ["body", "amount_toman"],
+      "msg": "Input should be greater than or equal to 1000",
+      "input": 500,
+      "ctx": {"ge": 1000}
+    }
+  ]
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="notice">متن و فیلدهای جزئی خطای ۴۲۲ توسط نسخه Pydantic/FastAPI ساخته می‌شوند؛ برای تصمیم‌گیری برنامه‌ای، بیشتر به Status Code و مسیر <code>loc</code> تکیه کنید.</div>
+
+        <h3>خطای بدنه وبهوک پیامک — HTTP 422</h3>
+        <pre><code>{
+  "success": false,
+  "error": "SMS_TEMPLATE_NOT_RESOLVED",
+  "detail": "متغیرهای SMS Forwarder جایگزین نشده‌اند"
+}</code><button onclick="copyPre(this)">کپی</button></pre>
+
+        <h3>کدهای HTTP قابل انتظار</h3>
         <div class="status-table">
-          <div><code>pending</code><span>در انتظار واریز و تأیید پیامک</span></div>
-          <div><code>paid</code><span>پرداخت قطعی و Callback ارسال‌شده</span></div>
-          <div><code>expired</code><span>زمان فاکتور تمام شده است</span></div>
-          <div><code>cancelled</code><span>پذیرنده فاکتور را لغو کرده است</span></div>
-          <div><code>401</code><span>API Key یا Webhook token نامعتبر است</span></div>
-          <div><code>409</code><span>order_id تکراری یا وضعیت نامناسب فاکتور</span></div>
+          <div><code>400</code><span>خطای تجاری یا تنظیم نامعتبر؛ مانند Callback غیرمجاز، کارت فعال‌نبودن، کمبود موجودی کارمزد یا تکمیل ظرفیت مبلغ‌های یکتا.</span></div>
+          <div><code>401</code><span>API Key، Webhook token یا Secret نامعتبر/غیرفعال.</span></div>
+          <div><code>404</code><span>فاکتور، مستندات اختصاصی یا Webhook موردنظر پیدا نشد یا به فروشگاه این کلید تعلق ندارد.</span></div>
+          <div><code>409</code><span><code>order_id</code> تکراری یا عملیات ناسازگار با وضعیت فعلی فاکتور؛ مانند لغو فاکتور پرداخت‌شده.</span></div>
+          <div><code>422</code><span>ساختار یا مقدار ورودی با Schema سازگار نیست؛ یا بدنه SMS Forwarder هنوز شامل Placeholder است.</span></div>
+          <div><code>429</code><span>در برنامه فعلی تولید نمی‌شود؛ ممکن است از لایه زیرساخت دریافت شود.</span></div>
+          <div><code>500/502/503/504</code><span>خطای داخلی یا موقت زیرساخت؛ درخواست ساخت فاکتور را بدون بررسی نتیجه قبلی تکرار نکنید.</span></div>
+        </div>
+
+        <h3>وضعیت‌های فاکتور</h3>
+        <div class="status-table">
+          <div><code>pending</code><span>در انتظار واریز و تأیید پیامک.</span></div>
+          <div><code>paid</code><span>پرداخت قطعی شده است؛ ارسال Callback جداگانه انجام می‌شود و موفقیت آن وضعیت فاکتور را تغییر نمی‌دهد.</span></div>
+          <div><code>expired</code><span>مهلت پرداخت تمام شده و رزرو کارمزد/مبلغ آزاد شده است.</span></div>
+          <div><code>cancelled</code><span>فاکتور در حالت انتظار توسط پذیرنده لغو شده است.</span></div>
         </div>
       </section>
     </div>

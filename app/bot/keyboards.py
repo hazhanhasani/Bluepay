@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton
+
+from app.services.appearance_service import InlineKeyboardMarkup
 
 from app.parsers import BANK_LABELS
 
@@ -337,6 +339,7 @@ def admin_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🖥 سلامت سامانه", callback_data="admin:system"),
             ],
             [InlineKeyboardButton(text="⚙️ پیش‌فرض‌های کارمزد", callback_data="admin:fee-defaults")],
+        [InlineKeyboardButton(text="🎨 ظاهر و کلیدهای ربات", callback_data="admin:appearance")],
             [InlineKeyboardButton(text="📦 مدیریت انتشار نسخه", callback_data="admin:update")],
             [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی پذیرنده", callback_data="home")],
         ]

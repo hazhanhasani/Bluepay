@@ -6,14 +6,18 @@ import secrets
 from datetime import datetime, timezone
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import InlineKeyboardMarkup as TelegramInlineKeyboardMarkup
+
+from app.services.appearance_service import InlineKeyboardMarkup
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import joinedload
 
 from app.bot.keyboards import admin_menu, main_menu
-from app.bot.states import AdminFeeState, AdminSmsApproveState, AdminWalletAdjustState
+from app.bot.states import AdminAppearanceEmojiState, AdminFeeState, AdminSmsApproveState, AdminWalletAdjustState
 from app.bot.presentation import (
     badge,
     error,
@@ -30,6 +34,16 @@ from app.bot.presentation import (
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.services.appearance_service import (
+    EMOJI_SLOTS,
+    THEME_LABELS,
+    VALID_BUTTON_THEMES,
+    get_appearance,
+    reset_appearance,
+    set_button_theme,
+    set_custom_emoji,
+    set_premium_emoji_enabled,
+)
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
@@ -137,6 +151,324 @@ def invoices_keyboard(invoices: list[Invoice], back_data: str = "admin:panel") -
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+
+
+def appearance_keyboard(*, confirm_reset: bool = False) -> InlineKeyboardMarkup:
+    config = get_appearance()
+    if confirm_reset:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✅ تأیید بازنشانی ظاهر", callback_data="admin:appearance:reset:confirm")],
+                [InlineKeyboardButton(text="انصراف", callback_data="admin:appearance")],
+            ]
+        )
+
+    def theme_title(theme: str) -> str:
+        marker = "✓ " if config.button_theme == theme else ""
+        return marker + THEME_LABELS[theme]
+
+    premium_title = "خاموش‌کردن ایموجی پرمیوم" if config.premium_emoji_enabled else "فعال‌کردن ایموجی پرمیوم"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=theme_title("semantic"), callback_data="admin:appearance:theme:semantic")],
+            [
+                InlineKeyboardButton(text=theme_title("primary"), callback_data="admin:appearance:theme:primary"),
+                InlineKeyboardButton(text=theme_title("success"), callback_data="admin:appearance:theme:success"),
+            ],
+            [
+                InlineKeyboardButton(text=theme_title("danger"), callback_data="admin:appearance:theme:danger"),
+                InlineKeyboardButton(text=theme_title("default"), callback_data="admin:appearance:theme:default"),
+            ],
+            [InlineKeyboardButton(text=f"✨ {premium_title}", callback_data="admin:appearance:premium:toggle")],
+            [InlineKeyboardButton(text="🧩 مدیریت ایموجی‌های پرمیوم", callback_data="admin:appearance:emojis")],
+            [InlineKeyboardButton(text="🧪 پیش‌نمایش کلیدها", callback_data="admin:appearance:preview")],
+            [InlineKeyboardButton(text="↻ بازنشانی ظاهر پیش‌فرض", callback_data="admin:appearance:reset")],
+            [InlineKeyboardButton(text="↩️ مرکز مدیریت", callback_data="admin:panel")],
+        ]
+    )
+
+
+def appearance_emoji_keyboard() -> InlineKeyboardMarkup:
+    config = get_appearance()
+    rows: list[list[InlineKeyboardButton]] = []
+    items = list(EMOJI_SLOTS.items())
+    for index in range(0, len(items), 2):
+        row: list[InlineKeyboardButton] = []
+        for slot, (title, fallback) in items[index:index + 2]:
+            marker = "✅" if config.emoji_ids.get(slot) else fallback
+            row.append(
+                InlineKeyboardButton(
+                    text=f"{marker} {title}",
+                    callback_data=f"admin:appearance:emoji:{slot}",
+                )
+            )
+        rows.append(row)
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="↩️ تنظیمات ظاهر", callback_data="admin:appearance")],
+            [InlineKeyboardButton(text="👑 مرکز مدیریت", callback_data="admin:panel")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def render_appearance_panel(callback: CallbackQuery, *, notice: str | None = None) -> None:
+    config = get_appearance()
+    configured = len(config.emoji_ids)
+    lines = [
+        f"🎨 قالب رنگ کلیدها: <b>{esc(THEME_LABELS[config.button_theme])}</b>",
+        f"✨ ایموجی پرمیوم: <b>{'فعال' if config.premium_emoji_enabled else 'غیرفعال'}</b>",
+        f"🧩 جایگاه‌های تنظیم‌شده: <b>{configured:,} از {len(EMOJI_SLOTS):,}</b>",
+        "",
+        "در حالت هوشمند، عملیات تأییدی سبز، عملیات حساس قرمز و مسیرهای اصلی آبی نمایش داده می‌شوند.",
+        "رنگ‌های قابل استفاده توسط تلگرام فقط آبی، سبز، قرمز و حالت پیش‌فرض هستند.",
+    ]
+    if notice:
+        lines.insert(0, f"✅ {esc(notice)}")
+        lines.insert(1, "")
+    await callback.message.edit_text(
+        panel(
+            "🎨",
+            "ظاهر و کلیدهای ربات",
+            lines,
+            subtitle="مدیریت رنگ دکمه‌ها و آیکون‌های اختصاصی",
+            footer="تغییرات بلافاصله روی منوهای جدید اعمال می‌شوند.",
+        ),
+        reply_markup=appearance_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "admin:appearance")
+async def admin_appearance(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    await state.clear()
+    await render_appearance_panel(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:appearance:theme:"))
+async def admin_appearance_theme(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    theme = callback.data.rsplit(":", 1)[1]
+    if theme not in VALID_BUTTON_THEMES:
+        return await callback.answer("قالب انتخاب‌شده معتبر نیست.", show_alert=True)
+    async with SessionLocal() as session:
+        await set_button_theme(session, theme)
+        await session.commit()
+    await render_appearance_panel(callback, notice=f"قالب کلیدها روی «{THEME_LABELS[theme]}» قرار گرفت.")
+    await callback.answer("قالب ذخیره شد.")
+
+
+@router.callback_query(F.data == "admin:appearance:premium:toggle")
+async def admin_appearance_premium_toggle(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    current = get_appearance()
+    enabled = not current.premium_emoji_enabled
+    if enabled and not current.emoji_ids:
+        return await callback.answer(
+            "ابتدا حداقل یک ایموجی پرمیوم برای یکی از جایگاه‌ها ثبت کنید.",
+            show_alert=True,
+        )
+    async with SessionLocal() as session:
+        await set_premium_emoji_enabled(session, enabled)
+        await session.commit()
+    await render_appearance_panel(callback, notice=f"ایموجی‌های پرمیوم {'فعال' if enabled else 'غیرفعال'} شدند.")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:appearance:emojis")
+async def admin_appearance_emojis(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    await state.clear()
+    config = get_appearance()
+    await callback.message.edit_text(
+        panel(
+            "🧩",
+            "ایموجی‌های پرمیوم کلیدها",
+            [
+                "برای هر گروه از کلیدها می‌توانید یک Custom Emoji مستقل تعیین کنید.",
+                f"جایگاه‌های تنظیم‌شده: <b>{len(config.emoji_ids):,}</b>",
+                "",
+                "روی جایگاه موردنظر بزنید؛ سپس خود ایموجی پرمیوم یا شناسه عددی آن را ارسال کنید.",
+                "برای حذف ایموجی یک جایگاه، عدد <code>0</code> را بفرستید.",
+            ],
+            subtitle="جایگزینی ایموجی‌های عادی با آیکون‌های تلگرام پرمیوم",
+            footer="ایموجی عادی همیشه به‌عنوان جایگزین امن باقی می‌ماند.",
+        ),
+        reply_markup=appearance_emoji_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:appearance:emoji:"))
+async def admin_appearance_emoji_start(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    slot = callback.data.rsplit(":", 1)[1]
+    if slot not in EMOJI_SLOTS:
+        return await callback.answer("جایگاه ایموجی معتبر نیست.", show_alert=True)
+    title, fallback = EMOJI_SLOTS[slot]
+    current_id = get_appearance().emoji_ids.get(slot)
+    await state.set_state(AdminAppearanceEmojiState.emoji)
+    await state.update_data(appearance_slot=slot)
+    await callback.message.answer(
+        panel(
+            fallback,
+            f"ایموجی پرمیوم «{title}»",
+            [
+                "یک Custom Emoji پرمیوم ارسال کنید؛ یا شناسه عددی آن را بفرستید.",
+                "برای حذف تنظیم این جایگاه، عدد <code>0</code> را ارسال کنید.",
+                "",
+                f"شناسه فعلی: <code>{esc(current_id or 'تنظیم نشده')}</code>",
+            ],
+            subtitle="ثبت و آزمایش آیکون اختصاصی کلید",
+            footer="پس از آزمایش موفق، حالت پرمیوم به‌صورت خودکار فعال می‌شود.",
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="× لغو", callback_data="admin:appearance:emojis")]]
+        ),
+    )
+    await callback.answer()
+
+
+def extract_custom_emoji_id(message: Message) -> str | None:
+    for entity in message.entities or []:
+        if entity.type == "custom_emoji" and entity.custom_emoji_id:
+            return entity.custom_emoji_id
+    raw = (message.text or "").strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+    return raw if raw.isdigit() else None
+
+
+@router.message(AdminAppearanceEmojiState.emoji)
+async def admin_appearance_emoji_save(message: Message, state: FSMContext):
+    if not await require_admin_message(message):
+        await state.clear()
+        return
+    data = await state.get_data()
+    slot = data.get("appearance_slot")
+    if slot not in EMOJI_SLOTS:
+        await state.clear()
+        return await message.answer("جایگاه ایموجی پیدا نشد؛ دوباره از بخش مدیریت اقدام کنید.")
+
+    raw = (message.text or "").strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+    if raw == "0":
+        async with SessionLocal() as session:
+            await set_custom_emoji(session, slot, None)
+            await session.commit()
+        await state.clear()
+        title = EMOJI_SLOTS[slot][0]
+        return await message.answer(
+            success("ایموجی حذف شد", f"جایگاه <b>{esc(title)}</b> دوباره از ایموجی عادی استفاده می‌کند."),
+            reply_markup=appearance_emoji_keyboard(),
+        )
+
+    emoji_id = extract_custom_emoji_id(message)
+    if not emoji_id:
+        return await message.answer(
+            error(
+                "ایموجی قابل شناسایی نیست",
+                "خود Custom Emoji را ارسال کنید یا فقط شناسه عددی آن را بفرستید. برای حذف نیز عدد 0 را ارسال کنید.",
+            )
+        )
+
+    try:
+        stickers = await message.bot.get_custom_emoji_stickers(custom_emoji_ids=[emoji_id])
+        if not stickers:
+            return await message.answer(error("شناسه نامعتبر است", "تلگرام برای این شناسه Custom Emoji معتبری برنگرداند."))
+        test_markup = TelegramInlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="پیش‌نمایش ایموجی پرمیوم",
+                    icon_custom_emoji_id=emoji_id,
+                    style="primary",
+                    callback_data="noop",
+                )
+            ]]
+        )
+        await message.answer("🧪 آزمایش نمایش آیکون روی کلید:", reply_markup=test_markup)
+    except TelegramBadRequest as exc:
+        return await message.answer(
+            error(
+                "تلگرام اجازه استفاده از این ایموجی را نداد",
+                "شناسه را بررسی کنید. همچنین مالک ربات باید Telegram Premium داشته باشد یا ربات شرایط اعلام‌شده تلگرام برای Custom Emoji را داشته باشد."
+                f"\n\n<code>{esc(str(exc))}</code>",
+            )
+        )
+
+    async with SessionLocal() as session:
+        await set_custom_emoji(session, slot, emoji_id)
+        await set_premium_emoji_enabled(session, True)
+        await session.commit()
+    await state.clear()
+    title = EMOJI_SLOTS[slot][0]
+    await message.answer(
+        success(
+            "ایموجی پرمیوم ذخیره شد",
+            f"آیکون جایگاه <b>{esc(title)}</b> ثبت و حالت ایموجی پرمیوم فعال شد.",
+        ),
+        reply_markup=appearance_emoji_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "admin:appearance:preview")
+async def admin_appearance_preview(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    preview = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ عملیات تأییدی", callback_data="admin:appearance:preview:success")],
+            [InlineKeyboardButton(text="🔗 مسیر اصلی", callback_data="admin:appearance:preview:primary")],
+            [InlineKeyboardButton(text="⛔ عملیات حساس", callback_data="admin:appearance:preview:danger")],
+            [InlineKeyboardButton(text="⌂ صفحه اصلی", callback_data="home")],
+        ]
+    )
+    # برای پیش‌نمایش دقیق، نقش‌ها از متن نیز تشخیص داده می‌شوند.
+    await callback.message.answer(
+        panel(
+            "🧪",
+            "پیش‌نمایش ظاهر کلیدها",
+            ["رنگ و آیکون‌های زیر با تنظیمات فعلی سامانه ساخته شده‌اند."],
+            subtitle="نمایش آزمایشی بدون تغییر عملیات",
+        ),
+        reply_markup=preview,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:appearance:preview:"))
+async def admin_appearance_preview_noop(callback: CallbackQuery):
+    await callback.answer("این کلید فقط برای پیش‌نمایش ظاهر است.")
+
+
+@router.callback_query(F.data == "admin:appearance:reset")
+async def admin_appearance_reset_ask(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    await callback.message.edit_text(
+        warning(
+            "بازنشانی تنظیمات ظاهر",
+            "قالب رنگ به حالت هوشمند برمی‌گردد و تمام شناسه‌های ایموجی پرمیوم حذف می‌شوند. ادامه می‌دهید؟",
+        ),
+        reply_markup=appearance_keyboard(confirm_reset=True),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:appearance:reset:confirm")
+async def admin_appearance_reset_confirm(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        await reset_appearance(session)
+        await session.commit()
+    await render_appearance_panel(callback, notice="تنظیمات ظاهر به حالت پیش‌فرض بازنشانی شد.")
+    await callback.answer()
+
+
 @router.message(Command("admin"))
 async def admin_command(message: Message):
     if not await require_admin_message(message):
@@ -165,6 +497,7 @@ async def admin_panel(callback: CallbackQuery):
             [
                 "• پایش وضعیت کسب‌وکار و تراکنش‌ها",
                 "• مدیریت پذیرندگان، کیف پول و پیش‌فرض‌های کارمزد",
+                "• تنظیم رنگ کلیدها و ایموجی‌های پرمیوم ربات",
                 "• بررسی پیامک‌های بانکی و تطبیق دستی",
                 "• کنترل نسخه، پشتیبان‌گیری و سلامت سرویس",
             ],

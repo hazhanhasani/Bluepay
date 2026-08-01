@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models import Invoice
+from app.services.appearance_service import load_appearance_settings
 from app.services.invoice_service import release_invoice_reservation
 from app.services.migration_service import run_runtime_migrations
 from app.services.settings_service import ensure_runtime_settings
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI):
     await run_runtime_migrations(engine)
     async with SessionLocal() as session:
         await ensure_runtime_settings(session)
+        await load_appearance_settings(session)
         await session.commit()
 
     bot_task = asyncio.create_task(telegram_worker(), name="telegram-polling")
