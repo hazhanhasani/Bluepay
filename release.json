@@ -1,7 +1,7 @@
 {
   "name": "BluePay Gateway Bot",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "min_version": "0.2.3",
-  "description": "محدودسازی هر فروشگاه به یک کلید API اختصاصی، بازنشانی امن کلید قبلی و جداسازی قطعی Callback و Secret هر فروشگاه بدون ارث‌بری Callback عمومی حساب",
+  "description": "بازکردن صفحه پرداخت داخل Telegram Web App به‌جای Chrome Custom Tab، افزودن دکمه کپی لینک و کاهش خطای ERR_NETWORK_CHANGED هنگام ورود از ربات",
   "run_migrations": true
 }

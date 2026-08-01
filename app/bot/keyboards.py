@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import CopyTextButton, InlineKeyboardButton, WebAppInfo
 
 from app.services.appearance_service import InlineKeyboardMarkup
 
@@ -84,7 +84,8 @@ def wallet_topup_menu() -> InlineKeyboardMarkup:
 def wallet_topup_created_menu(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 پرداخت و شارژ کیف پول", url=payment_url)],
+            [InlineKeyboardButton(text="🌐 پرداخت داخل تلگرام", web_app=WebAppInfo(url=payment_url))],
+            [InlineKeyboardButton(text="📋 کپی لینک پرداخت", copy_text=CopyTextButton(text=payment_url))],
             [InlineKeyboardButton(text="💼 بازگشت به کیف پول", callback_data="wallet")],
             [InlineKeyboardButton(text="⌂ صفحه اصلی", callback_data="home")],
         ]
@@ -338,7 +339,8 @@ def invoice_confirm_menu() -> InlineKeyboardMarkup:
 def payment_created_menu(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🌐 بازکردن صفحه پرداخت", url=payment_url)],
+            [InlineKeyboardButton(text="🌐 بازکردن داخل تلگرام", web_app=WebAppInfo(url=payment_url))],
+            [InlineKeyboardButton(text="📋 کپی لینک پرداخت", copy_text=CopyTextButton(text=payment_url))],
             [InlineKeyboardButton(text="＋ ساخت فاکتور دیگری", callback_data="invoice:new")],
             [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
         ]

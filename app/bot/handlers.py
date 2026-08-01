@@ -323,7 +323,7 @@ async def _create_wallet_topup(target: Message, user_id: int, amount_toman: int,
                     f"🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
                     f"⏳ وضعیت: <b>{badge('pending')}</b>",
                     "",
-                    f"🔗 لینک پرداخت:\n{payment_url}",
+                    "🌐 برای پرداخت، از دکمه «پرداخت داخل تلگرام» استفاده کنید.",
                 ]
             ),
             footer="پس از تأیید پیامک بانکی، کیف پول به‌صورت خودکار شارژ می‌شود.",
@@ -1011,9 +1011,9 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
                 f"🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
                 f"⏳ وضعیت: <b>{badge('pending')}</b>",
                 "",
-                f"🔗 لینک پرداخت:\n{payment_url}",
+                "🌐 برای مشاهده صفحه پرداخت، از دکمه «بازکردن داخل تلگرام» استفاده کنید.",
             ]),
-            footer="لینک را برای مشتری ارسال کنید. وضعیت پرداخت پس از دریافت پیامک بانک به‌صورت خودکار به‌روزرسانی می‌شود.",
+            footer="برای ارسال به مشتری، دکمه «کپی لینک پرداخت» را بزنید. وضعیت پرداخت پس از دریافت پیامک بانک به‌صورت خودکار به‌روزرسانی می‌شود.",
         )
         await callback.message.edit_text(text, reply_markup=payment_created_menu(payment_url))
         await callback.answer("فاکتور صادر شد.")
