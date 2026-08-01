@@ -1,0 +1,22 @@
+# Optional GitHub Actions example.
+# Copy this file manually to .github/workflows/ci.yml only after the GitHub token
+# has Workflows: Read and write. BluePay deliberately does not publish workflow
+# files through the in-bot updater when that permission is unavailable.
+name: BluePay CI
+on:
+  push:
+    branches: [main, bluepay-staging]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python scripts/validate_release.py
+      - run: pytest -q

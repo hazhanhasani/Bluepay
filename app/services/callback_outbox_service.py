@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import callback_signature
 from app.models import CallbackAttempt, CallbackEvent, Invoice, SandboxInvoice
+from app.services.timeline_service import record_payment_event
 from app.version import APP_VERSION
 
 CALLBACK_TIMEOUT_SECONDS = 10
@@ -74,6 +75,14 @@ async def enqueue_live_paid_callback(session: AsyncSession, invoice: Invoice) ->
     )
     session.add(event)
     invoice.callback_status = "queued"
+    await session.flush()
+    await record_payment_event(
+        session,
+        invoice,
+        "callback.queued",
+        status="queued",
+        detail={"event_id": event.id, "delivery_id": event.delivery_id},
+    )
     return event
 
 
@@ -206,6 +215,23 @@ async def _deliver_event(event_id: int) -> None:
                     callback_attempted_at=finished,
                 )
             )
+            invoice = await session.get(Invoice, event.invoice_id)
+            if invoice:
+                await record_payment_event(
+                    session,
+                    invoice,
+                    "callback.delivered" if success else ("callback.failed" if event.status == "failed" else "callback.retry_scheduled"),
+                    status="delivered" if success else event.status,
+                    actor_type="callback_worker",
+                    actor_id=event.delivery_id,
+                    detail={
+                        "attempt": attempt_number,
+                        "http_status": http_status,
+                        "result": result,
+                        "duration_ms": duration_ms,
+                        "next_attempt_at": event.next_attempt_at.isoformat() if event.status == "retry" else None,
+                    },
+                )
         if event.sandbox_invoice_id:
             await session.execute(
                 update(SandboxInvoice)

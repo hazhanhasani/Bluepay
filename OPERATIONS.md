@@ -1,43 +1,60 @@
-# BluePay Enterprise Operations
+# BluePay v1.1.0 Operations Guide
+
+## Startup safety and migrations
+
+The service starts in this order:
+
+1. Restore the encrypted SQLite snapshot when compatibility mode is active.
+2. Run `alembic upgrade head`.
+3. Run legacy additive migrations for installations predating Alembic.
+4. Compare live tables and columns with SQLAlchemy metadata (Schema Guard).
+5. Execute a database read/write readiness probe.
+6. Load settings and appearance, then start Telegram and Callback workers.
+7. Mark `/ready` healthy only after all required components are active.
+
+A migration/schema failure keeps the process alive in maintenance mode so Railway logs remain available, but `/ready` returns HTTP 503. Railway therefore must not promote the broken deployment. Financial records are not deleted and automatic destructive downgrade is disabled.
+
+## Railway health checks
+
+`railway.json` uses:
+
+```text
+/ready
+```
+
+- `GET /health`: lightweight liveness; does not require business queries.
+- `GET /ready`: database, migrations, schema and required worker readiness.
+- `GET /health/details`: protected operational detail exposed by the application router.
+- `GET /status`: public safe status page.
+- `GET /metrics`: Prometheus text metrics without secrets.
+
+After deploy, confirm `/ready` returns `200` before creating a live invoice.
+
+## Telegram delivery mode
+
+`TELEGRAM_MODE=auto` is the default:
+
+- HTTPS Railway domain: Telegram Webhook is registered automatically.
+- Local HTTP: Long Polling is used.
+- `TELEGRAM_MODE=webhook`: force Webhook.
+- `TELEGRAM_MODE=polling`: force Polling.
+
+Webhook endpoint:
+
+```text
+/webhooks/telegram/{derived-secret}
+```
+
+The path secret is derived from `TELEGRAM_WEBHOOK_SECRET` or, when omitted, from `BOT_TOKEN`. It is never shown in public documentation.
 
 ## Database modes
 
-- **SQLite compatibility mode:** without `DATABASE_URL`; encrypted GitHub snapshot remains available when `GITHUB_TOKEN` is configured.
-- **PostgreSQL production mode:** set Railway `DATABASE_URL`; GitHub database snapshots are disabled and PostgreSQL becomes the source of truth.
+- **SQLite compatibility mode:** omit `DATABASE_URL`; encrypted GitHub snapshot remains available when `GITHUB_TOKEN` is configured.
+- **PostgreSQL production mode:** set Railway `DATABASE_URL`; PostgreSQL becomes the source of truth.
 
-Do not point a populated SQLite deployment to a new empty PostgreSQL database until the data has been exported and imported. Keep a verified backup before any database switch.
+PostgreSQL uses pre-ping, bounded pooling, connection recycling and timeouts. Do not point a populated SQLite deployment to a new empty PostgreSQL database until data is exported and imported. Keep a verified backup before any switch.
 
-## Durable Callback Outbox
-
-A paid invoice and its callback event are committed in the same database transaction. The worker sends immediately, then after 30 seconds, then after 5 minutes. Each attempt has a 10-second timeout. HTTP 2xx succeeds; redirects are not followed. Failed events can be retried from the merchant portal or admin center.
-
-## Financial ledger
-
-`wallet_ledger` is append-only. Corrections are made by reversal entries. Do not edit or delete financial rows manually. The current wallet balance is protected with row locking when fees are reserved, released or collected.
-
-## Sandbox
-
-Sandbox records live in `sandbox_invoices`; they never reserve a real amount, select a card, consume wallet credit or accept bank SMS. Simulations can produce paid, failed or expired states. Paid simulations emit `sandbox.invoice.paid`.
-
-## Monitoring
-
-- `/health`: readiness, database mode and callback queue counts
-- `/status`: public safe status page
-- `/metrics`: Prometheus text metrics without account secrets
-- `SENTRY_DSN`: optional exception reporting
-
-## Release checklist
-
-1. Run `python scripts/validate_release.py`.
-2. Run `pytest -q` with dependencies installed.
-3. Verify migrations on a copy of the production database.
-4. Build ZIP from repository root, excluding caches and runtime data.
-5. Run `unzip -t` and publish the SHA-256 checksum.
-6. Deploy, verify `/health`, create a Sandbox invoice and test Callback delivery.
-
-## Moving an existing SQLite installation to PostgreSQL
-
-The switch is intentionally not automatic because silently pointing a populated deployment at an empty database would hide existing financial data. Restore/download the current `gateway.db`, create an empty PostgreSQL database, then run:
+### Moving SQLite to PostgreSQL
 
 ```bash
 python scripts/migrate_sqlite_to_postgres.py \
@@ -46,4 +63,124 @@ python scripts/migrate_sqlite_to_postgres.py \
   --confirm-empty-target
 ```
 
-The importer refuses a non-empty target, copies records in foreign-key order, restores cyclic references and resets PostgreSQL sequences. Verify record counts and Sandbox/Callback behavior before changing the production service variable.
+The importer refuses a non-empty target, copies records in foreign-key order, restores cyclic references and resets PostgreSQL sequences.
+
+## Durable Callback Outbox
+
+A paid invoice and callback event are committed in the same database transaction. The worker retries durable events after restart. Each attempt, status code, duration and final result are written to the callback event and payment Timeline. Failed events can be retried from the merchant portal.
+
+## Payment Timeline
+
+Every invoice can record events such as:
+
+```text
+invoice.created
+payment.page_opened
+sms.received
+invoice.paid
+callback.queued
+callback.delivered / callback.failed
+receipt.viewed
+```
+
+The authenticated API endpoint is:
+
+```text
+GET /api/v1/invoices/{payment_id}/timeline
+```
+
+The merchant portal also shows the recent Timeline for support investigations.
+
+## Financial ledger and reports
+
+`wallet_ledger` is append-only. Corrections are made by reversal entries. Do not edit or delete financial rows manually.
+
+The merchant portal provides:
+
+- 30-day gross payment and fee totals
+- invoice CSV export
+- wallet ledger CSV export
+- Excel-compatible `.xls` statement with daily, monthly and store breakdowns
+- printable financial statement and service invoice
+- reconciliation cases
+- callback delivery history
+
+## Team access
+
+Merchant owners can add Telegram users with one role:
+
+- `finance`: financial reports and reconciliation
+- `developer`: stores, API/Callback and Timeline
+- `support`: invoices, Timeline and callback retry
+- `viewer`: read-only operational view
+
+The owner remains the only account that can add/remove team members. Team portal tokens are derived and revocable by disabling the membership.
+
+## Secure SMS Forwarder devices
+
+Register each device from the bot or merchant API. The device secret is shown only at creation/rotation.
+
+Signature format:
+
+```text
+sha256=HMAC_SHA256(device_secret, timestamp + "." + raw_request_body)
+```
+
+Required headers after at least one secure device exists:
+
+```http
+X-BluePay-Timestamp: 1785600000
+X-BluePay-Signature: sha256=...
+```
+
+The default replay window is 300 seconds (`SMS_HMAC_MAX_AGE_SECONDS`). Unknown, disabled, expired or invalidly signed devices are rejected and audited. Rotate or disable a device immediately when a phone is lost.
+
+## Release staging, validation and rollback
+
+Before GitHub publishing, BluePay validates:
+
+- standard ZIP integrity and safe paths
+- required project files
+- Python syntax for every `.py` file
+- `release.json` version
+- Alembic revision when migrations are requested
+- absence of databases, private keys and common secret files
+- package SHA-256
+- GitHub repository/branch push access
+
+Admin release modes:
+
+- **Staging:** publish to `RELEASE_STAGING_BRANCH` (default `bluepay-staging`).
+- **Production:** publish to the Railway branch.
+- **Rollback:** move the branch ref to the recorded previous commit after confirmation.
+
+Workflow files are intentionally not included in the upload bundle because Fine-grained PATs without `Workflows: write` receive GitHub 403. A reviewed example is available at `ops/ci-workflow.example.yml`; copy it manually after granting the appropriate permission.
+
+## Diagnostic center
+
+The admin diagnostic center tests and reports:
+
+- database connectivity and business query
+- migration/schema readiness
+- Telegram API access
+- GitHub repository and branch permissions
+- backup state
+- callback worker state
+- current deployment version and latest startup error
+
+A JSON diagnostic report can be downloaded without exposing raw tokens.
+
+## Sandbox
+
+Sandbox records never reserve a real amount, select a live card, consume wallet credit or accept bank SMS. Simulations can produce `paid`, `failed` or `expired` and can exercise a Sandbox callback.
+
+## Release checklist
+
+1. Run `python scripts/validate_release.py`.
+2. Run `pytest -q` with dependencies installed.
+3. Test Alembic on a copy of the production database.
+4. Publish to staging and verify `/ready`, bot commands, Sandbox and callback delivery.
+5. Publish to production.
+6. Verify `/ready`, `/metrics`, one Sandbox invoice and one callback test.
+7. Keep the previous commit recorded for immediate rollback.
+8. Build ZIP from repository root, remove caches/runtime data, run `unzip -t`, and publish SHA-256.

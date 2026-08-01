@@ -8,7 +8,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models import AuditLog, BankCard, CallbackEvent, Invoice, Merchant, ReconciliationCase, SmsTransaction, Store, WalletLedger
+from app.models import AuditLog, BankCard, CallbackEvent, Invoice, Merchant, MerchantTeamMember, PaymentEvent, ReconciliationCase, SmsDevice, SmsTransaction, Store, WalletLedger
+from app.services.report_service import merchant_financial_breakdown, merchant_financial_summary
 
 
 def portal_token(merchant: Merchant) -> str:
@@ -41,6 +42,13 @@ async def build_portal_dashboard(session: AsyncSession, merchant: Merchant) -> d
     cases = list((await session.scalars(select(ReconciliationCase).where(ReconciliationCase.merchant_id == merchant.id, ReconciliationCase.status == "open").order_by(ReconciliationCase.id.desc()).limit(30))).all())
     callbacks = list((await session.scalars(select(CallbackEvent).where(CallbackEvent.merchant_id == merchant.id).order_by(CallbackEvent.id.desc()).limit(30))).all())
     audits = list((await session.scalars(select(AuditLog).where(AuditLog.merchant_id == merchant.id).order_by(AuditLog.id.desc()).limit(30))).all())
+    team = list((await session.scalars(select(MerchantTeamMember).where(MerchantTeamMember.merchant_id == merchant.id).order_by(MerchantTeamMember.is_active.desc(), MerchantTeamMember.id.asc()))).all())
+    devices = list((await session.scalars(select(SmsDevice).where(SmsDevice.merchant_id == merchant.id).order_by(SmsDevice.is_active.desc(), SmsDevice.id.asc()))).all())
+    timeline = list((await session.scalars(select(PaymentEvent).where(PaymentEvent.merchant_id == merchant.id).order_by(PaymentEvent.id.desc()).limit(40))).all())
+    financial_summary = await merchant_financial_summary(session, merchant.id, days=30)
+    financial_breakdown = await merchant_financial_breakdown(session, merchant, days=366)
+    fee_30d = financial_summary["fee_rial"]
+    gross_30d = financial_summary["gross_rial"]
     return {
         "invoice_count": invoice_count,
         "paid_count": paid_count,
@@ -54,4 +62,11 @@ async def build_portal_dashboard(session: AsyncSession, merchant: Merchant) -> d
         "cases": cases,
         "callbacks": callbacks,
         "audits": audits,
+        "team": team,
+        "devices": devices,
+        "timeline": timeline,
+        "fee_30d_rial": fee_30d,
+        "gross_30d_rial": gross_30d,
+        "financial_summary": financial_summary,
+        "financial_breakdown": financial_breakdown,
     }

@@ -13,7 +13,7 @@
 <header class="portal-header">
   <div class="portal-wrap portal-header-inner">
     <div class="brand"><span class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span><span><b>پنل پذیرنده</b><small>{{ merchant.name }}</small></span></div>
-    <span class="badge success">حساب فعال</span>
+    <span class="badge success">{{ role_label(portal_role) }} · حساب فعال</span>
   </div>
 </header>
 <main class="portal-wrap portal-main">
@@ -30,6 +30,31 @@
   </section>
 
   <section class="portal-grid">
+    {% if can(portal_role, "reports.export") %}
+    <article class="portal-card portal-wide" id="reports">
+      <div class="portal-card-head"><div><span>گزارش مالی</span><h2>۳۰ روز اخیر و خروجی حسابداری</h2></div><b>CSV استاندارد</b></div>
+      <div class="portal-report-grid">
+        <div><span>حجم پرداخت ۳۰ روز</span><strong>{{ "{:,}".format(toman(dashboard.gross_30d_rial)) }} تومان</strong></div>
+        <div><span>کارمزد ثبت‌شده ۳۰ روز</span><strong>{{ "{:,}".format(toman(dashboard.fee_30d_rial)) }} تومان</strong></div>
+        <a href="{{ portal_base }}/reports/invoices.csv">CSV فاکتورها</a>
+        <a href="{{ portal_base }}/reports/wallet.csv">CSV دفتر کل</a>
+        <a href="{{ portal_base }}/reports/statement.xls">خروجی Excel</a>
+        <a href="{{ portal_base }}/reports/statement" target="_blank">گزارش قابل چاپ</a>
+        {% if portal_owner %}<a href="{{ portal_base }}/reports/service-invoice" target="_blank">صورتحساب خدمات</a>{% endif %}
+        <div><span>تراکنش مشکوک</span><strong>{{ dashboard.financial_summary.suspicious_count }}</strong></div>
+        <div><span>مغایرت باز</span><strong>{{ dashboard.financial_summary.open_reconciliation_count }}</strong></div>
+      </div>
+    </article>
+    {% endif %}
+    {% if can(portal_role, "reports.export") %}
+    <article class="portal-card portal-wide">
+      <div class="portal-card-head"><div><span>تفکیک فروش</span><h2>عملکرد فروشگاه‌ها در ۱۲ ماه اخیر</h2></div><b>{{ dashboard.financial_breakdown.stores|length }} فروشگاه</b></div>
+      <div class="portal-table">
+        <div class="portal-row portal-row-head"><span>فروشگاه</span><span>تعداد</span><span>فروش نهایی</span><span>کارمزد</span></div>
+        {% for item in dashboard.financial_breakdown.stores %}<div class="portal-row"><span>{{ item.store_name }}<small>{{ item.store_code }}</small></span><span>{{ item.count }}</span><span>{{ "{:,}".format(toman(item.gross_rial)) }} ت</span><span>{{ "{:,}".format(toman(item.fee_rial)) }} ت</span></div>{% else %}<div class="portal-empty">فروش پرداخت‌شده‌ای ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+    {% endif %}
     <article class="portal-card portal-wide">
       <div class="portal-card-head"><div><span>تراکنش‌ها</span><h2>آخرین فاکتورها</h2></div><b>{{ dashboard.invoices|length }} رکورد</b></div>
       <div class="portal-table">
@@ -40,11 +65,12 @@
       </div>
     </article>
 
+    {% if can(portal_role, "api.manage") or can(portal_role, "callback.manage") %}
     <article class="portal-card portal-wide" id="stores">
       <div class="portal-card-head"><div><span>اتصال‌ها و کنترل ریسک</span><h2>مدیریت فروشگاه‌ها</h2></div></div>
       <div class="portal-store-grid">
         {% for item in dashboard.stores %}
-        <form class="portal-store-form" method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/stores/{{ item.id }}/settings">
+        <form class="portal-store-form" method="post" action="{{ portal_base }}/stores/{{ item.id }}/settings">
           <div class="portal-store-title"><div><b>{{ item.name }}</b><span>{{ item.code }} · {{ 'فعال' if item.is_active else 'غیرفعال' }}</span></div><small>Secret و API Key فقط در ربات مدیریت می‌شوند</small></div>
           <label>Callback اختصاصی<input name="callback_url" type="url" value="{{ item.callback_url or '' }}" placeholder="https://example.com/webhook"></label>
           <label>IPهای مجاز، جداشده با ویرگول<textarea name="allowed_ips" placeholder="203.0.113.10, 198.51.100.0/24">{{ item.allowed_ips or '' }}</textarea></label>
@@ -54,14 +80,18 @@
         {% else %}<div class="portal-empty">فروشگاهی ثبت نشده است.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
 
+    {% if can(portal_role, "cards.view") %}
     <article class="portal-card">
       <div class="portal-card-head"><div><span>حساب‌ها</span><h2>کارت‌های مقصد</h2></div></div>
       <div class="portal-list">
         {% for item in dashboard.cards %}<div><b>•••• {{ item.card_last4 }}</b><span>{{ item.bank_code }}</span><small>{{ 'فعال' if item.is_active else 'غیرفعال' }}{% if item.is_default %} · پیش‌فرض{% endif %}</small></div>{% else %}<div class="portal-empty">کارتی ثبت نشده است.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
 
+    {% if can(portal_role, "wallet.view") %}
     <article class="portal-card portal-wide">
       <div class="portal-card-head"><div><span>دفتر کل</span><h2>گردش کیف پول</h2></div><b>غیرقابل‌ویرایش</b></div>
       <div class="portal-table">
@@ -69,21 +99,60 @@
         {% for item in dashboard.ledger %}<div class="portal-row"><span>{{ item.entry_type }}</span><span>{{ "{:,}".format(toman(item.amount_rial)) }} ت</span><span>{{ "{:,}".format(toman(item.balance_after_rial)) }} ت</span><code>{{ item.reference_id or '-' }}</code></div>{% else %}<div class="portal-empty">گردشی ثبت نشده است.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
 
+    {% if can(portal_role, "callback.manage") or can(portal_role, "callbacks.retry") %}
     <article class="portal-card" id="callbacks">
       <div class="portal-card-head"><div><span>تحویل رویداد</span><h2>Callbackها</h2></div></div>
       <div class="portal-list">
-        {% for item in dashboard.callbacks %}<div><b>{{ item.event_type }}</b><span>{{ item.status }} · تلاش {{ item.attempt_count }}/{{ item.max_attempts }}</span><small>{{ item.last_result or 'در صف ارسال' }}</small>{% if item.status == 'failed' %}<form method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/callbacks/{{ item.id }}/retry"><button type="submit" class="portal-mini-button">ارسال مجدد</button></form>{% endif %}</div>{% else %}<div class="portal-empty">رویدادی ثبت نشده است.</div>{% endfor %}
+        {% for item in dashboard.callbacks %}<div><b>{{ item.event_type }}</b><span>{{ item.status }} · تلاش {{ item.attempt_count }}/{{ item.max_attempts }}</span><small>{{ item.last_result or 'در صف ارسال' }}</small>{% if item.status == 'failed' and (can(portal_role, 'callbacks.retry') or can(portal_role, 'callback.manage')) %}<form method="post" action="{{ portal_base }}/callbacks/{{ item.id }}/retry"><button type="submit" class="portal-mini-button">ارسال مجدد</button></form>{% endif %}</div>{% else %}<div class="portal-empty">رویدادی ثبت نشده است.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
 
+    {% if can(portal_role, "reconciliation.view") or can(portal_role, "reconciliation.manage") %}
     <article class="portal-card" id="reconciliation">
       <div class="portal-card-head"><div><span>مغایرت</span><h2>نیازمند بررسی</h2></div><b>{{ dashboard.cases|length }}</b></div>
       <div class="portal-list">
-        {% for item in dashboard.cases %}<div><b>{{ item.case_type }}</b><span>{{ item.severity }}</span><small>{{ item.detail }}</small><form method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/reconciliation/{{ item.id }}/resolve"><button type="submit" class="portal-mini-button">بستن مورد</button></form></div>{% else %}<div class="portal-empty">مغایرت بازی وجود ندارد.</div>{% endfor %}
+        {% for item in dashboard.cases %}<div><b>{{ item.case_type }}</b><span>{{ item.severity }}</span><small>{{ item.detail }}</small>{% if can(portal_role, "reconciliation.manage") %}<form method="post" action="{{ portal_base }}/reconciliation/{{ item.id }}/resolve"><button type="submit" class="portal-mini-button">بستن مورد</button></form>{% endif %}</div>{% else %}<div class="portal-empty">مغایرت بازی وجود ندارد.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
 
+    {% if portal_owner %}
+    <article class="portal-card portal-wide" id="team">
+      <div class="portal-card-head"><div><span>دسترسی سازمانی</span><h2>اعضای تیم پذیرنده</h2></div><b>Role Based</b></div>
+      <form class="portal-inline-form" method="post" action="{{ portal_base }}/team">
+        <label>شناسه عددی تلگرام<input name="telegram_user_id" type="number" min="1" required placeholder="123456789"></label>
+        <label>نقش<select name="role"><option value="finance">مدیر مالی</option><option value="developer">توسعه‌دهنده</option><option value="support">پشتیبان</option><option value="viewer">فقط مشاهده</option></select></label>
+        <button type="submit">افزودن یا به‌روزرسانی عضو</button>
+      </form>
+      <div class="portal-list">
+        <div><b>مالک اصلی</b><span>{{ merchant.telegram_user_id }} · دسترسی کامل</span><small>مالک اصلی قابل حذف نیست.</small></div>
+        {% for item in dashboard.team %}<div><b>{{ role_label(item.role) }}</b><span>{{ item.telegram_user_id }} · {{ 'فعال' if item.is_active else 'غیرفعال' }}</span><small>آخرین دسترسی: {{ item.last_access_at or '-' }}</small>{% if item.is_active %}<form method="post" action="{{ portal_base }}/team/{{ item.telegram_user_id }}/remove"><button type="submit" class="portal-mini-button">قطع دسترسی</button></form>{% endif %}</div>{% else %}<div class="portal-empty">عضو دیگری ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+    {% endif %}
+
+    {% if can(portal_role, "api.manage") %}
+    <article class="portal-card" id="sms-devices">
+      <div class="portal-card-head"><div><span>امنیت پیامک</span><h2>دستگاه‌های SMS Forwarder</h2></div><b>HMAC</b></div>
+      <div class="portal-list">
+        {% for item in dashboard.devices %}<div><b>{{ item.name }}</b><span>{{ item.device_id }} · {{ 'فعال' if item.is_active else 'متوقف' }}</span><small>امضای اجباری: {{ 'بله' if item.require_hmac else 'خیر' }} · درخواست: {{ item.request_count }} · آخرین IP: {{ item.last_seen_ip or '-' }}</small></div>{% else %}<div class="portal-empty">دستگاه امنی ثبت نشده؛ از API یا ربات دستگاه را ثبت کنید.</div>{% endfor %}
+      </div>
+    </article>
+    {% endif %}
+
+    {% if can(portal_role, "timeline.view") %}
+    <article class="portal-card" id="timeline">
+      <div class="portal-card-head"><div><span>خط زمانی</span><h2>رویدادهای پرداخت</h2></div><b>{{ dashboard.timeline|length }}</b></div>
+      <div class="portal-list">
+        {% for item in dashboard.timeline %}<div><b>{{ item.event_type }}</b><span>فاکتور #{{ item.invoice_id }} · {{ item.status }}</span><small>{{ item.created_at }} · {{ item.actor_type }}</small></div>{% else %}<div class="portal-empty">رویدادی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+    {% endif %}
+
+    {% if can(portal_role, "audit.view") %}
     <article class="portal-card portal-wide">
       <div class="portal-card-head"><div><span>امنیت و پیگیری</span><h2>Audit Log</h2></div></div>
       <div class="portal-table">
@@ -91,6 +160,7 @@
         {% for item in dashboard.audits %}<div class="portal-row"><span>{{ item.action }}</span><span>{{ item.actor_type }}</span><span>{{ item.entity_type or '-' }} #{{ item.entity_id or '-' }}</span><code>{{ item.request_id or '-' }}</code></div>{% else %}<div class="portal-empty">رویداد ممیزی ثبت نشده است.</div>{% endfor %}
       </div>
     </article>
+    {% endif %}
   </section>
   <div class="portal-note">این لینک محرمانه است. آن را در اختیار دیگران قرار ندهید. برای بازنشانی دسترسی، Secret حساب را از ربات تغییر دهید.</div>
 </main>

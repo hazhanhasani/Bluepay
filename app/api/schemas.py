@@ -88,3 +88,14 @@ class StoreSecurityRequest(BaseModel):
 
 class SmsDevicePolicyRequest(BaseModel):
     devices: list[str] = Field(default_factory=list, max_length=50)
+
+class SmsDeviceCreateRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=120)
+    name: str | None = Field(default=None, max_length=120)
+    allowed_bank_codes: list[str] = Field(default_factory=list, max_length=50)
+    require_hmac: bool = True
+
+
+class TeamMemberRequest(BaseModel):
+    telegram_user_id: int = Field(gt=0)
+    role: Literal["finance", "developer", "support", "viewer"]

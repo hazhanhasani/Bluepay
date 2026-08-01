@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -17,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ApiContext, api_context
 from app.api.errors import error_response
-from app.api.schemas import (CreateInvoiceRequest, SandboxCreateInvoiceRequest, SandboxSimulationRequest, SmsDevicePolicyRequest, StoreSecurityRequest)
+from app.api.schemas import (CreateInvoiceRequest, SandboxCreateInvoiceRequest, SandboxSimulationRequest, SmsDeviceCreateRequest, SmsDevicePolicyRequest, StoreSecurityRequest, TeamMemberRequest)
 from app.core.config import settings
 from app.core.security import decrypt_text
 from app.core.urls import validate_public_https_url
 from app.db.session import get_session
-from app.models import Invoice, Merchant, SandboxInvoice, SmsTransaction, Store
+from app.models import Invoice, Merchant, MerchantTeamMember, PaymentEvent, SandboxInvoice, SmsDevice, SmsTransaction, Store
 from app.parsers import BANK_PROFILES, bank_label
 from app.services.callback_service import send_paid_callback
 from app.services.audit_service import write_audit
@@ -31,6 +31,10 @@ from app.services.idempotency_service import (
     canonical_request_hash, finalize_idempotency, get_idempotent_response, reserve_idempotency,
 )
 from app.services.metrics_service import prometheus_metrics
+from app.services.report_service import excel_compatible_statement, invoices_csv, merchant_financial_breakdown, merchant_financial_summary, wallet_csv
+from app.services.sms_device_service import authenticate_sms_device, list_sms_devices, register_sms_device, rotate_sms_device_secret
+from app.services.team_service import add_team_member, list_team_members, remove_team_member, role_has_permission, role_label, verify_team_portal_token
+from app.services.timeline_service import invoice_timeline, record_payment_event
 from app.services.portal_service import build_portal_dashboard, verify_portal_token
 from app.services.reconciliation_service import open_reconciliation_case
 from app.services.risk_service import evaluate_invoice_creation
@@ -89,7 +93,7 @@ def invoice_payload(invoice: Invoice) -> dict:
     }
 
 
-@router.get("/health")
+@router.get("/health/details")
 async def health(session: AsyncSession = Depends(get_session)):
     from app.models import CallbackEvent
     backup = storage.status()
@@ -327,38 +331,123 @@ async def api_update_store_security(
 
 @router.get("/api/v1/account/sms-devices")
 async def api_sms_devices(context: ApiContext = Depends(api_context), session: AsyncSession = Depends(get_session)):
-    raw = await get_setting(session, f"sms_trusted_devices:{context.merchant.id}") or ""
-    return {"success": True, "devices": [item.strip() for item in raw.split(",") if item.strip()]}
+    rows = await list_sms_devices(session, context.merchant.id)
+    legacy_raw = await get_setting(session, f"sms_trusted_devices:{context.merchant.id}") or ""
+    return {
+        "success": True,
+        "devices": [
+            {
+                "id": row.id,
+                "device_id": row.device_id,
+                "name": row.name,
+                "active": row.is_active,
+                "require_hmac": row.require_hmac,
+                "allowed_bank_codes": [x for x in (row.allowed_bank_codes or "").split(",") if x],
+                "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+                "last_seen_ip": row.last_seen_ip,
+                "request_count": row.request_count,
+            }
+            for row in rows
+        ],
+        "legacy_devices": [item.strip() for item in legacy_raw.split(",") if item.strip()],
+        "signature": {
+            "headers": ["X-BluePay-Timestamp", "X-BluePay-Signature"],
+            "format": "sha256=HMAC_SHA256(device_secret, timestamp + '.' + raw_body)",
+            "max_age_seconds": settings.sms_hmac_max_age_seconds,
+        },
+    }
+
+
+@router.post("/api/v1/account/sms-devices")
+async def api_register_sms_device(
+    request: Request,
+    body: SmsDeviceCreateRequest,
+    context: ApiContext = Depends(api_context),
+    session: AsyncSession = Depends(get_session),
+):
+    row, secret = await register_sms_device(
+        session,
+        context.merchant,
+        body.device_id,
+        name=body.name,
+        allowed_bank_codes=body.allowed_bank_codes,
+        require_hmac=body.require_hmac,
+    )
+    await write_audit(
+        session,
+        action="sms.device.registered",
+        actor_type="api_key",
+        actor_id=context.api_key.id if context.api_key else "legacy",
+        merchant_id=context.merchant.id,
+        store_id=context.store.id if context.store else None,
+        entity_type="sms_device",
+        entity_id=row.id,
+        request_id=getattr(request.state, "request_id", None),
+        ip_address=context.client_ip,
+        metadata={"device_id": row.device_id, "require_hmac": row.require_hmac},
+    )
+    await session.commit()
+    return {
+        "success": True,
+        "device": {"id": row.id, "device_id": row.device_id, "name": row.name, "require_hmac": row.require_hmac},
+        "device_secret": secret,
+        "warning": "این Secret فقط در همین پاسخ نمایش داده می‌شود؛ آن را در SMS Forwarder ذخیره کنید.",
+    }
+
+
+@router.post("/api/v1/account/sms-devices/{device_id}/rotate")
+async def api_rotate_sms_device(
+    request: Request,
+    device_id: int,
+    context: ApiContext = Depends(api_context),
+    session: AsyncSession = Depends(get_session),
+):
+    row = await session.scalar(select(SmsDevice).where(SmsDevice.id == device_id, SmsDevice.merchant_id == context.merchant.id))
+    if not row:
+        raise HTTPException(status_code=404, detail={"code": "SMS_DEVICE_NOT_FOUND", "message": "دستگاه پیدا نشد"})
+    secret = await rotate_sms_device_secret(session, context.merchant, row)
+    await write_audit(session, action="sms.device.secret_rotated", actor_type="api_key", actor_id=context.api_key.id if context.api_key else "legacy", merchant_id=context.merchant.id, store_id=context.store.id if context.store else None, entity_type="sms_device", entity_id=row.id, request_id=getattr(request.state, "request_id", None), ip_address=context.client_ip)
+    await session.commit()
+    return {"success": True, "device_id": row.device_id, "device_secret": secret}
+
+
+@router.delete("/api/v1/account/sms-devices/{device_id}")
+async def api_disable_sms_device(
+    request: Request,
+    device_id: int,
+    context: ApiContext = Depends(api_context),
+    session: AsyncSession = Depends(get_session),
+):
+    row = await session.scalar(select(SmsDevice).where(SmsDevice.id == device_id, SmsDevice.merchant_id == context.merchant.id))
+    if not row:
+        raise HTTPException(status_code=404, detail={"code": "SMS_DEVICE_NOT_FOUND", "message": "دستگاه پیدا نشد"})
+    row.is_active = False
+    await write_audit(session, action="sms.device.disabled", actor_type="api_key", actor_id=context.api_key.id if context.api_key else "legacy", merchant_id=context.merchant.id, store_id=context.store.id if context.store else None, entity_type="sms_device", entity_id=row.id, request_id=getattr(request.state, "request_id", None), ip_address=context.client_ip)
+    await session.commit()
+    return {"success": True}
 
 
 @router.put("/api/v1/account/sms-devices")
-async def api_update_sms_devices(
+async def api_update_sms_devices_legacy(
     request: Request,
     body: SmsDevicePolicyRequest,
     context: ApiContext = Depends(api_context),
     session: AsyncSession = Depends(get_session),
 ):
+    """Backward-compatible trusted-device list.
+
+    New installations should use POST and HMAC credentials. This endpoint is
+    retained so existing SMS Forwarder setups are not interrupted during upgrade.
+    """
     devices = []
     for item in body.devices:
         value = " ".join(item.strip().split())[:120]
         if value and value.casefold() not in {x.casefold() for x in devices}:
             devices.append(value)
     await set_setting(session, f"sms_trusted_devices:{context.merchant.id}", ",".join(devices))
-    await write_audit(
-        session,
-        action="sms.devices.updated",
-        actor_type="api_key",
-        actor_id=context.api_key.id if context.api_key else "legacy",
-        merchant_id=context.merchant.id,
-        store_id=context.store.id if context.store else None,
-        entity_type="merchant",
-        entity_id=context.merchant.id,
-        request_id=getattr(request.state, "request_id", None),
-        ip_address=context.client_ip,
-        metadata={"device_count": len(devices)},
-    )
+    await write_audit(session, action="sms.devices.legacy_updated", actor_type="api_key", actor_id=context.api_key.id if context.api_key else "legacy", merchant_id=context.merchant.id, store_id=context.store.id if context.store else None, entity_type="merchant", entity_id=context.merchant.id, request_id=getattr(request.state, "request_id", None), ip_address=context.client_ip, metadata={"device_count": len(devices)})
     await session.commit()
-    return {"success": True, "devices": devices}
+    return {"success": True, "devices": devices, "deprecated": True}
 
 
 @router.post("/api/v1/invoices")
@@ -484,6 +573,38 @@ async def api_invoice_status(
     if context.store:
         payload.update({"store_code": context.store.code, "store_name": context.store.name})
     return {"success": True, **payload}
+
+
+@router.get("/api/v1/invoices/{token}/timeline")
+async def api_invoice_timeline(
+    token: str,
+    context: ApiContext = Depends(api_context),
+    session: AsyncSession = Depends(get_session),
+):
+    conditions = [Invoice.token == token, Invoice.merchant_id == context.merchant.id]
+    if context.store and not context.legacy:
+        conditions.append(Invoice.store_id == context.store.id)
+    invoice = await session.scalar(select(Invoice).where(*conditions))
+    if not invoice:
+        raise HTTPException(status_code=404, detail={"code": "INVOICE_NOT_FOUND", "message": "فاکتور یافت نشد"})
+    rows = await invoice_timeline(session, invoice.id)
+    return {
+        "success": True,
+        "payment_id": invoice.token,
+        "events": [
+            {
+                "id": row.id,
+                "type": row.event_type,
+                "status": row.status,
+                "actor_type": row.actor_type,
+                "actor_id": row.actor_id,
+                "request_id": row.request_id,
+                "detail": json.loads(row.detail_json) if row.detail_json else None,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ],
+    }
 
 
 @router.post("/api/v1/invoices/{token}/cancel")
@@ -682,9 +803,226 @@ async def merchant_portal(request: Request, merchant_id: int, token: str, sessio
     dashboard = await build_portal_dashboard(session, merchant)
     return templates.TemplateResponse(
         "portal.html",
-        {"request": request, "merchant": merchant, "dashboard": dashboard, "toman": rial_to_toman, "app_version": APP_VERSION},
+        {"request": request, "merchant": merchant, "dashboard": dashboard, "toman": rial_to_toman, "role_label": role_label, "portal_role": "owner", "portal_base": f"/portal/{merchant.id}/{token}", "portal_owner": True, "can": role_has_permission, "app_version": APP_VERSION},
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "X-Robots-Tag": "noindex, nofollow"},
     )
+
+
+@router.get("/portal/team/{member_id}/{token}", response_class=HTMLResponse, include_in_schema=False)
+async def merchant_team_portal(request: Request, member_id: int, token: str, session: AsyncSession = Depends(get_session)):
+    member = await session.get(MerchantTeamMember, member_id)
+    if not member or not verify_team_portal_token(member, token):
+        return templates.TemplateResponse("not_found.html", {"request": request}, status_code=404)
+    merchant = await session.get(Merchant, member.merchant_id)
+    if not merchant or not merchant.is_active:
+        return templates.TemplateResponse("not_found.html", {"request": request}, status_code=404)
+    member.last_access_at = datetime.now(timezone.utc)
+    dashboard = await build_portal_dashboard(session, merchant)
+    await session.commit()
+    return templates.TemplateResponse(
+        "portal.html",
+        {"request": request, "merchant": merchant, "dashboard": dashboard, "toman": rial_to_toman, "role_label": role_label, "portal_role": member.role, "portal_base": f"/portal/team/{member.id}/{token}", "portal_owner": False, "can": role_has_permission, "app_version": APP_VERSION},
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+async def _require_team_portal(session: AsyncSession, member_id: int, token: str, permission: str) -> tuple[MerchantTeamMember, Merchant]:
+    member = await session.get(MerchantTeamMember, member_id)
+    if not member or not verify_team_portal_token(member, token) or not role_has_permission(member.role, permission):
+        raise HTTPException(status_code=404, detail="Not found")
+    merchant = await session.get(Merchant, member.merchant_id)
+    if not merchant or not merchant.is_active:
+        raise HTTPException(status_code=404, detail="Not found")
+    return member, merchant
+
+
+@router.get("/portal/team/{member_id}/{token}/reports/invoices.csv", include_in_schema=False)
+async def team_portal_invoices_report(member_id: int, token: str, days: int = 90, session: AsyncSession = Depends(get_session)):
+    _member, merchant = await _require_team_portal(session, member_id, token, "reports.export")
+    content = await invoices_csv(session, merchant, days=days)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-invoices-{merchant.id}.csv"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/team/{member_id}/{token}/reports/wallet.csv", include_in_schema=False)
+async def team_portal_wallet_report(member_id: int, token: str, days: int = 365, session: AsyncSession = Depends(get_session)):
+    _member, merchant = await _require_team_portal(session, member_id, token, "reports.export")
+    content = await wallet_csv(session, merchant, days=days)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-wallet-{merchant.id}.csv"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/team/{member_id}/{token}/reports/statement.xls", include_in_schema=False)
+async def team_portal_excel_statement(member_id: int, token: str, days: int = 366, session: AsyncSession = Depends(get_session)):
+    _member, merchant = await _require_team_portal(session, member_id, token, "reports.export")
+    summary = await merchant_financial_summary(session, merchant.id, days=days)
+    breakdown = await merchant_financial_breakdown(session, merchant, days=days)
+    content = excel_compatible_statement(merchant, summary, breakdown)
+    return Response(content=content, media_type="application/vnd.ms-excel; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-statement-{merchant.id}.xls"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/team/{member_id}/{token}/reports/statement", response_class=HTMLResponse, include_in_schema=False)
+async def team_portal_print_statement(request: Request, member_id: int, token: str, days: int = 30, session: AsyncSession = Depends(get_session)):
+    _member, merchant = await _require_team_portal(session, member_id, token, "reports.export")
+    summary = await merchant_financial_summary(session, merchant.id, days=days)
+    breakdown = await merchant_financial_breakdown(session, merchant, days=days)
+    return templates.TemplateResponse("financial_report.html", {"request": request, "merchant": merchant, "summary": summary, "breakdown": breakdown, "toman": rial_to_toman, "report_kind": "statement", "app_version": APP_VERSION}, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
+
+
+@router.post("/portal/team/{member_id}/{token}/stores/{store_id}/settings", include_in_schema=False)
+async def team_portal_update_store_settings(
+    request: Request,
+    member_id: int,
+    token: str,
+    store_id: int,
+    callback_url: str = Form(default=""),
+    allowed_ips: str = Form(default=""),
+    invoice_rate_limit_per_minute: int = Form(default=30),
+    daily_amount_limit_toman: int = Form(default=500_000_000),
+    session: AsyncSession = Depends(get_session),
+):
+    member, merchant = await _require_team_portal(session, member_id, token, "api.manage")
+    store = await session.scalar(select(Store).where(Store.id == store_id, Store.merchant_id == merchant.id))
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    callback_value = callback_url.strip()
+    if callback_value:
+        valid, normalized = validate_public_https_url(callback_value)
+        if not valid:
+            raise HTTPException(status_code=422, detail=normalized)
+        callback_value = normalized
+    networks = []
+    for raw in allowed_ips.replace(";", ",").split(","):
+        item = raw.strip()
+        if item:
+            try:
+                networks.append(str(ipaddress.ip_network(item, strict=False)))
+            except ValueError:
+                raise HTTPException(status_code=422, detail=f"IP یا شبکه نامعتبر است: {item}")
+    store.callback_url = callback_value or None
+    store.allowed_ips = ",".join(networks) or None
+    store.invoice_rate_limit_per_minute = max(1, min(300, invoice_rate_limit_per_minute))
+    store.daily_amount_limit_rial = max(1_000, min(5_000_000_000, daily_amount_limit_toman)) * 10
+    await write_audit(session, action="team_portal.store.settings.updated", actor_type="team_member", actor_id=member.telegram_user_id, merchant_id=merchant.id, store_id=store.id, entity_type="store", entity_id=store.id, request_id=getattr(request.state, "request_id", None), ip_address=request.client.host if request.client else None, metadata={"role": member.role})
+    await session.commit()
+    return RedirectResponse(url=f"/portal/team/{member_id}/{token}#stores", status_code=303)
+
+
+@router.post("/portal/team/{member_id}/{token}/reconciliation/{case_id}/resolve", include_in_schema=False)
+async def team_portal_resolve_case(request: Request, member_id: int, token: str, case_id: int, session: AsyncSession = Depends(get_session)):
+    member, merchant = await _require_team_portal(session, member_id, token, "reconciliation.manage")
+    from app.models import ReconciliationCase
+    row = await session.scalar(select(ReconciliationCase).where(ReconciliationCase.id == case_id, ReconciliationCase.merchant_id == merchant.id))
+    if row:
+        row.status = "resolved"
+        row.resolution = f"بسته‌شده توسط عضو تیم با نقش {member.role}"
+        row.resolved_by = str(member.telegram_user_id)
+        row.resolved_at = datetime.now(timezone.utc)
+        await write_audit(session, action="team_portal.reconciliation.resolved", actor_type="team_member", actor_id=member.telegram_user_id, merchant_id=merchant.id, entity_type="reconciliation_case", entity_id=row.id, request_id=getattr(request.state, "request_id", None), metadata={"role": member.role})
+        await session.commit()
+    return RedirectResponse(url=f"/portal/team/{member_id}/{token}#reconciliation", status_code=303)
+
+
+@router.post("/portal/team/{member_id}/{token}/callbacks/{event_id}/retry", include_in_schema=False)
+async def team_portal_retry_callback(request: Request, member_id: int, token: str, event_id: int, session: AsyncSession = Depends(get_session)):
+    member, merchant = await _require_team_portal(session, member_id, token, "callbacks.retry")
+    from app.models import CallbackEvent
+    row = await session.scalar(select(CallbackEvent).where(CallbackEvent.id == event_id, CallbackEvent.merchant_id == merchant.id))
+    if row and row.status == "failed":
+        row.status = "retry"
+        row.attempt_count = 0
+        row.next_attempt_at = datetime.now(timezone.utc)
+        row.locked_at = None
+        row.last_result = "team_portal_retry_requested"
+        await write_audit(session, action="team_portal.callback.retry_requested", actor_type="team_member", actor_id=member.telegram_user_id, merchant_id=merchant.id, store_id=row.store_id, entity_type="callback_event", entity_id=row.id, request_id=getattr(request.state, "request_id", None), metadata={"role": member.role})
+        await session.commit()
+    return RedirectResponse(url=f"/portal/team/{member_id}/{token}#callbacks", status_code=303)
+
+
+@router.get("/portal/{merchant_id}/{token}/reports/invoices.csv", include_in_schema=False)
+async def portal_invoices_report(merchant_id: int, token: str, days: int = 90, session: AsyncSession = Depends(get_session)):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    content = await invoices_csv(session, merchant, days=days)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-invoices-{merchant.id}.csv"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/{merchant_id}/{token}/reports/wallet.csv", include_in_schema=False)
+async def portal_wallet_report(merchant_id: int, token: str, days: int = 365, session: AsyncSession = Depends(get_session)):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    content = await wallet_csv(session, merchant, days=days)
+    return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-wallet-{merchant.id}.csv"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/{merchant_id}/{token}/reports/statement.xls", include_in_schema=False)
+async def portal_excel_statement(merchant_id: int, token: str, days: int = 366, session: AsyncSession = Depends(get_session)):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    summary = await merchant_financial_summary(session, merchant.id, days=days)
+    breakdown = await merchant_financial_breakdown(session, merchant, days=days)
+    content = excel_compatible_statement(merchant, summary, breakdown)
+    return Response(content=content, media_type="application/vnd.ms-excel; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="bluepay-statement-{merchant.id}.xls"', "Cache-Control": "no-store"})
+
+
+@router.get("/portal/{merchant_id}/{token}/reports/statement", response_class=HTMLResponse, include_in_schema=False)
+async def portal_print_statement(request: Request, merchant_id: int, token: str, days: int = 30, session: AsyncSession = Depends(get_session)):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    summary = await merchant_financial_summary(session, merchant.id, days=days)
+    breakdown = await merchant_financial_breakdown(session, merchant, days=days)
+    return templates.TemplateResponse("financial_report.html", {"request": request, "merchant": merchant, "summary": summary, "breakdown": breakdown, "toman": rial_to_toman, "report_kind": "statement", "app_version": APP_VERSION}, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
+
+
+@router.get("/portal/{merchant_id}/{token}/reports/service-invoice", response_class=HTMLResponse, include_in_schema=False)
+async def portal_service_invoice(request: Request, merchant_id: int, token: str, days: int = 30, session: AsyncSession = Depends(get_session)):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    summary = await merchant_financial_summary(session, merchant.id, days=days)
+    breakdown = await merchant_financial_breakdown(session, merchant, days=days)
+    return templates.TemplateResponse("financial_report.html", {"request": request, "merchant": merchant, "summary": summary, "breakdown": breakdown, "toman": rial_to_toman, "report_kind": "service_invoice", "app_version": APP_VERSION}, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
+
+
+@router.post("/portal/{merchant_id}/{token}/team", include_in_schema=False)
+async def portal_add_team_member(
+    request: Request,
+    merchant_id: int,
+    token: str,
+    telegram_user_id: int = Form(...),
+    role: str = Form(...),
+    session: AsyncSession = Depends(get_session),
+):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        row = await add_team_member(session, merchant, telegram_user_id, role, invited_by=merchant.telegram_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    await write_audit(session, action="team.member.added", actor_type="merchant_portal", actor_id=merchant.telegram_user_id, merchant_id=merchant.id, entity_type="team_member", entity_id=row.id, request_id=getattr(request.state, "request_id", None), metadata={"telegram_user_id": telegram_user_id, "role": row.role})
+    await session.commit()
+    return RedirectResponse(url=f"/portal/{merchant_id}/{token}#team", status_code=303)
+
+
+@router.post("/portal/{merchant_id}/{token}/team/{telegram_user_id}/remove", include_in_schema=False)
+async def portal_remove_team_member(
+    request: Request,
+    merchant_id: int,
+    token: str,
+    telegram_user_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    merchant = await session.get(Merchant, merchant_id)
+    if not merchant or not verify_portal_token(merchant, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    removed = await remove_team_member(session, merchant.id, telegram_user_id)
+    if removed:
+        await write_audit(session, action="team.member.removed", actor_type="merchant_portal", actor_id=merchant.telegram_user_id, merchant_id=merchant.id, entity_type="team_member", entity_id=telegram_user_id, request_id=getattr(request.state, "request_id", None))
+        await session.commit()
+    return RedirectResponse(url=f"/portal/{merchant_id}/{token}#team", status_code=303)
 
 
 @router.post("/portal/{merchant_id}/{token}/stores/{store_id}/settings", include_in_schema=False)
@@ -821,6 +1159,25 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
 
+    view_event_type = "receipt.viewed" if invoice.status == "paid" else "payment_page.opened"
+    existing_view = await session.scalar(
+        select(func.count(PaymentEvent.id)).where(
+            PaymentEvent.invoice_id == invoice.id,
+            PaymentEvent.event_type == view_event_type,
+        )
+    )
+    if not existing_view:
+        await record_payment_event(
+            session,
+            invoice,
+            view_event_type,
+            actor_type="customer",
+            actor_id=request.client.host if request.client else None,
+            request_id=getattr(request.state, "request_id", None),
+            detail={"user_agent": request.headers.get("user-agent", "")[:240]},
+        )
+        await session.commit()
+
     if invoice.status == "paid":
         return templates.TemplateResponse("success.html", {"request": request, "invoice": invoice, "toman": rial_to_toman})
     if invoice.status in {"expired", "cancelled"}:
@@ -861,6 +1218,7 @@ async def merchant_sms_webhook(
     if not hmac.compare_digest(token, merchant_sms_token(merchant)):
         raise HTTPException(status_code=401, detail={"code": "INVALID_SMS_WEBHOOK_TOKEN", "message": "Webhook token نامعتبر است"})
 
+    raw_body = await request.body()
     try:
         sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
     except SmsPayloadError as exc:
@@ -880,24 +1238,83 @@ async def merchant_sms_webhook(
             details={"preview": exc.preview[:240] if exc.preview else None},
         )
 
-    trusted_devices_raw = await get_setting(session, f"sms_trusted_devices:{merchant.id}")
-    if trusted_devices_raw:
-        trusted_devices = {item.strip().casefold() for item in trusted_devices_raw.replace(";", ",").split(",") if item.strip()}
-        incoming_device = (device_id or "").strip().casefold()
-        if trusted_devices and incoming_device not in trusted_devices:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    client_ip = forwarded or (request.client.host if request.client else None)
+    registered_count = int(
+        await session.scalar(
+            select(func.count(SmsDevice.id)).where(
+                SmsDevice.merchant_id == merchant.id,
+                SmsDevice.is_active.is_(True),
+            )
+        )
+        or 0
+    )
+    authenticated_device = None
+    if registered_count:
+        try:
+            authenticated_device = await authenticate_sms_device(
+                session,
+                merchant,
+                device_id=device_id,
+                raw_body=raw_body,
+                timestamp=request.headers.get("X-BluePay-Timestamp", ""),
+                signature=request.headers.get("X-BluePay-Signature", ""),
+                bank_code=bank_code,
+                ip_address=client_ip,
+            )
+        except PermissionError as exc:
             await write_audit(
                 session,
-                action="sms.device_blocked",
+                action="sms.device_signature_rejected",
                 actor_type="webhook",
                 actor_id=device_id or "unknown",
                 merchant_id=merchant.id,
                 entity_type="sms_device",
                 entity_id=device_id or "unknown",
                 request_id=getattr(request.state, "request_id", None),
-                metadata={"trusted_devices_count": len(trusted_devices)},
+                ip_address=client_ip,
+                metadata={"reason": str(exc)},
             )
             await session.commit()
-            raise HTTPException(status_code=403, detail={"code": "SMS_DEVICE_NOT_TRUSTED", "message": "این دستگاه در فهرست مجاز پیامک پذیرنده نیست"})
+            raise HTTPException(status_code=403, detail={"code": "SMS_DEVICE_SIGNATURE_INVALID", "message": str(exc)})
+        if not authenticated_device:
+            await write_audit(
+                session,
+                action="sms.device_unknown_blocked",
+                actor_type="webhook",
+                actor_id=device_id or "unknown",
+                merchant_id=merchant.id,
+                entity_type="sms_device",
+                entity_id=device_id or "unknown",
+                request_id=getattr(request.state, "request_id", None),
+                ip_address=client_ip,
+                metadata={"registered_devices": registered_count},
+            )
+            await session.commit()
+            raise HTTPException(status_code=403, detail={"code": "SMS_DEVICE_NOT_REGISTERED", "message": "دستگاه پیامک ثبت یا فعال نشده است"})
+    else:
+        # Compatibility path for installations upgraded from versions before
+        # per-device HMAC. Once one secure device is registered, this path is
+        # disabled automatically.
+        trusted_devices_raw = await get_setting(session, f"sms_trusted_devices:{merchant.id}")
+        if trusted_devices_raw:
+            trusted_devices = {item.strip().casefold() for item in trusted_devices_raw.replace(";", ",").split(",") if item.strip()}
+            incoming_device = (device_id or "").strip().casefold()
+            if trusted_devices and incoming_device not in trusted_devices:
+                await write_audit(
+                    session,
+                    action="sms.device_blocked",
+                    actor_type="webhook",
+                    actor_id=device_id or "unknown",
+                    merchant_id=merchant.id,
+                    entity_type="sms_device",
+                    entity_id=device_id or "unknown",
+                    request_id=getattr(request.state, "request_id", None),
+                    ip_address=client_ip,
+                    metadata={"trusted_devices_count": len(trusted_devices)},
+                )
+                await session.commit()
+                raise HTTPException(status_code=403, detail={"code": "SMS_DEVICE_NOT_TRUSTED", "message": "این دستگاه در فهرست مجاز پیامک پذیرنده نیست"})
 
     sms, invoice, diagnostic = await ingest_sms(
         session,

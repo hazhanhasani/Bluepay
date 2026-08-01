@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", alias="APP_ENV")
     callback_worker_interval_seconds: int = Field(default=2, alias="CALLBACK_WORKER_INTERVAL_SECONDS")
     callback_worker_batch_size: int = Field(default=30, alias="CALLBACK_WORKER_BATCH_SIZE")
+    telegram_mode: str = Field(default="auto", alias="TELEGRAM_MODE")
+    telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
+    sms_hmac_max_age_seconds: int = Field(default=300, alias="SMS_HMAC_MAX_AGE_SECONDS")
+    release_staging_branch: str = Field(default="bluepay-staging", alias="RELEASE_STAGING_BRANCH")
+    startup_fail_open: bool = Field(default=False, alias="STARTUP_FAIL_OPEN")
 
     @field_validator("explicit_base_url", mode="before")
     @classmethod
@@ -98,6 +103,25 @@ class Settings(BaseSettings):
     @property
     def effective_portal_secret(self) -> str:
         return self.portal_secret or self.bot_token
+
+    @property
+    def effective_telegram_webhook_secret(self) -> str:
+        import hashlib
+        raw = (self.telegram_webhook_secret or f"bluepay:{self.bot_token}").encode()
+        return hashlib.sha256(raw).hexdigest()
+
+    @property
+    def telegram_webhook_url(self) -> str:
+        return f"{self.base_url}/webhooks/telegram/{self.effective_telegram_webhook_secret[:32]}"
+
+    @property
+    def use_telegram_webhook(self) -> bool:
+        mode = (self.telegram_mode or "auto").strip().lower()
+        if mode == "webhook":
+            return True
+        if mode == "polling":
+            return False
+        return self.base_url.startswith("https://")
 
 
 @lru_cache

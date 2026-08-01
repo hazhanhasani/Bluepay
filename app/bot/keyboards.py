@@ -103,6 +103,10 @@ def connection_menu(docs_url: str, portal_url: str | None = None) -> InlineKeybo
             InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
         ],
         [InlineKeyboardButton(text="🔔 Callback پرداخت", callback_data="callback:panel")],
+        [
+            InlineKeyboardButton(text="👥 اعضای تیم", callback_data="team:panel"),
+            InlineKeyboardButton(text="📱 دستگاه‌های پیامک", callback_data="sms:devices"),
+        ],
         [InlineKeyboardButton(text="🧪 آزمایش Callback", callback_data="callback:test")],
         [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
     ])

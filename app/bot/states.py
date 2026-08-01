@@ -52,3 +52,6 @@ class AdminAppearanceEmojiState(StatesGroup):
 
 class AdminRequiredChannelState(StatesGroup):
     channel = State()
+
+class AdminReleaseState(StatesGroup):
+    waiting_zip = State()

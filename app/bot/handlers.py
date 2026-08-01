@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import html
 import io
+import json
 import secrets
 from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
 
 from app.bot.access import show_access_prompt
@@ -43,6 +44,7 @@ from app.bot.states import (
     StoreCallbackState,
     StoreCreateState,
     WalletTopUpState,
+    AdminReleaseState,
 )
 from app.bot.presentation import (
     DIVIDER,
@@ -63,7 +65,7 @@ from app.core.config import settings
 from app.core.security import encrypt_text, random_secret
 from app.core.urls import validate_public_https_url
 from app.db.session import SessionLocal
-from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.models import BankCard, Invoice, Merchant, MerchantTeamMember, SmsDevice, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
 from app.services.access_service import evaluate_access
 from app.services.callback_service import send_paid_callback, send_store_test_callback, send_test_callback
 from app.services.github_service import GitHubPublisher, validate_release_zip
@@ -77,6 +79,8 @@ from app.services.invoice_service import (
 )
 from app.services.merchant_service import credit_wallet, get_or_create_merchant
 from app.services.portal_service import merchant_portal_url
+from app.services.sms_device_service import register_sms_device, rotate_sms_device_secret, list_sms_devices
+from app.services.team_service import add_team_member, list_team_members, remove_team_member, role_label, team_portal_url
 from app.services.settings_service import get_setting
 from app.services.store_service import (
     create_store,
@@ -1940,6 +1944,172 @@ async def admin_reject_sms(message: Message):
     await message.answer("✅ پیامک رد شد.")
 
 
+
+
+@router.message(Command("teamaccess"))
+async def team_access_command(message: Message):
+    async with SessionLocal() as session:
+        rows = list((await session.scalars(select(MerchantTeamMember).where(MerchantTeamMember.telegram_user_id == message.from_user.id, MerchantTeamMember.is_active.is_(True)).order_by(MerchantTeamMember.id.asc()))).all())
+        merchants = {row.merchant_id: await session.get(Merchant, row.merchant_id) for row in rows}
+    if not rows:
+        return await message.answer(warning("دسترسی تیمی پیدا نشد", "مالک پذیرنده باید ابتدا شما را با /teamadd ثبت کند."))
+    keyboard = []
+    lines = []
+    for row in rows:
+        merchant = merchants.get(row.merchant_id)
+        if not merchant or not merchant.is_active:
+            continue
+        lines.append(f"• {esc(merchant.name)} · {esc(role_label(row.role))}")
+        keyboard.append([InlineKeyboardButton(text=f"{merchant.name} · {role_label(row.role)}", url=team_portal_url(row))])
+    await message.answer(panel("👥", "دسترسی‌های تیمی من", lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+
+@router.callback_query(F.data == "team:panel")
+async def team_panel(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پذیرنده پیدا نشد.", show_alert=True)
+        rows = await list_team_members(session, merchant.id)
+    lines = [
+        f"مالک اصلی: <code>{merchant.telegram_user_id}</code> · دسترسی کامل",
+        "",
+        "افزودن عضو:",
+        "<code>/teamadd TELEGRAM_ID ROLE</code>",
+        "نقش‌ها: <code>finance</code>، <code>developer</code>، <code>support</code>، <code>viewer</code>",
+    ]
+    keyboard = []
+    for row in rows:
+        lines.append(f"• <code>{row.telegram_user_id}</code> · {esc(role_label(row.role))} · {'فعال' if row.is_active else 'غیرفعال'}")
+        if row.is_active:
+            keyboard.append([InlineKeyboardButton(text=f"قطع دسترسی {row.telegram_user_id}", callback_data=f"team:remove:{row.telegram_user_id}")])
+    keyboard.append([InlineKeyboardButton(text="‹ بازگشت به اتصال", callback_data="connect")])
+    await callback.message.edit_text(panel("👥", "اعضای تیم پذیرنده", lines, footer="هر عضو فقط مجوزهای نقش خود را دریافت می‌کند."), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+
+@router.message(Command("teamadd"))
+async def team_add_command(message: Message):
+    parts = (message.text or "").split()
+    if len(parts) != 3 or not parts[1].isdigit():
+        return await message.answer("فرمت: <code>/teamadd TELEGRAM_ID finance|developer|support|viewer</code>")
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        if not merchant:
+            return await message.answer("حساب پذیرنده پیدا نشد.")
+        try:
+            row = await add_team_member(session, merchant, int(parts[1]), parts[2], invited_by=message.from_user.id)
+        except ValueError as exc:
+            return await message.answer(error("عضو اضافه نشد", esc(str(exc))))
+        await session.commit()
+    await message.answer(success("عضو تیم ثبت شد", f"کاربر <code>{row.telegram_user_id}</code> با نقش <b>{esc(role_label(row.role))}</b> فعال شد."))
+
+
+@router.message(Command("team"))
+async def team_list_command(message: Message):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        if not merchant:
+            return await message.answer("حساب پذیرنده پیدا نشد.")
+        rows = await list_team_members(session, merchant.id)
+    text = [f"مالک: <code>{merchant.telegram_user_id}</code>"]
+    text.extend(f"<code>{row.telegram_user_id}</code> · {esc(role_label(row.role))} · {'فعال' if row.is_active else 'غیرفعال'}" for row in rows)
+    await message.answer(panel("👥", "فهرست اعضای تیم", text or ["عضوی ثبت نشده است."]))
+
+
+@router.message(Command("teamremove"))
+async def team_remove_command(message: Message):
+    parts = (message.text or "").split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return await message.answer("فرمت: <code>/teamremove TELEGRAM_ID</code>")
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        if not merchant:
+            return await message.answer("حساب پذیرنده پیدا نشد.")
+        ok = await remove_team_member(session, merchant.id, int(parts[1]))
+        await session.commit()
+    await message.answer(success("دسترسی قطع شد", "عضو غیرفعال شد.") if ok else warning("عضو پیدا نشد", "شناسه در تیم شما ثبت نشده است."))
+
+
+@router.callback_query(F.data.startswith("team:remove:"))
+async def team_remove_callback(callback: CallbackQuery):
+    user_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پیدا نشد.", show_alert=True)
+        ok = await remove_team_member(session, merchant.id, user_id)
+        await session.commit()
+    await callback.answer("دسترسی قطع شد." if ok else "عضو پیدا نشد.", show_alert=True)
+    await team_panel(callback)
+
+
+@router.callback_query(F.data == "sms:devices")
+async def sms_devices_panel(callback: CallbackQuery):
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        if not merchant:
+            return await callback.answer("حساب پیدا نشد.", show_alert=True)
+        rows = await list_sms_devices(session, merchant.id)
+    lines = [
+        "ثبت امن دستگاه:",
+        "<code>/smsdeviceadd phone-1</code>",
+        "Secret فقط یک‌بار نمایش داده می‌شود و برای امضای HMAC بدنه استفاده می‌شود.",
+        "",
+    ]
+    keyboard = []
+    for row in rows:
+        lines.append(f"• <b>{esc(row.name)}</b> · <code>{esc(row.device_id)}</code> · {'فعال' if row.is_active else 'متوقف'} · درخواست {row.request_count}")
+        if row.is_active:
+            keyboard.append([InlineKeyboardButton(text=f"تعویض Secret {row.device_id}", callback_data=f"sms:device:rotate:{row.id}")])
+    keyboard.append([InlineKeyboardButton(text="‹ بازگشت به اتصال", callback_data="connect")])
+    await callback.message.edit_text(panel("📱", "دستگاه‌های امن پیامک", lines, footer="پس از ثبت اولین دستگاه امن، درخواست دستگاه‌های ناشناس رد می‌شود."), reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+
+@router.message(Command("smsdeviceadd"))
+async def sms_device_add_command(message: Message):
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2:
+        return await message.answer("فرمت: <code>/smsdeviceadd phone-1</code>")
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
+        if not merchant:
+            return await message.answer("حساب پذیرنده پیدا نشد.")
+        try:
+            row, secret = await register_sms_device(session, merchant, parts[1], name=parts[1], require_hmac=True)
+        except ValueError as exc:
+            return await message.answer(error("ثبت دستگاه ناموفق بود", esc(str(exc))))
+        await session.commit()
+    await message.answer(
+        success(
+            "دستگاه امن ثبت شد",
+            "\n".join([
+                f"Device ID: <code>{esc(row.device_id)}</code>",
+                f"Device Secret: <code>{esc(secret)}</code>",
+                "هدر زمان: <code>X-BluePay-Timestamp</code>",
+                "هدر امضا: <code>X-BluePay-Signature</code>",
+                "فرمول: <code>sha256=HMAC_SHA256(secret, timestamp + '.' + raw_body)</code>",
+            ]),
+            footer="Secret را همین حالا ذخیره کنید؛ بعداً فقط با Rotation قابل دریافت است.",
+        )
+    )
+
+
+@router.callback_query(F.data.startswith("sms:device:rotate:"))
+async def sms_device_rotate_callback(callback: CallbackQuery):
+    device_db_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
+        row = await session.scalar(select(SmsDevice).where(SmsDevice.id == device_db_id, SmsDevice.merchant_id == merchant.id if merchant else -1))
+        if not merchant or not row:
+            return await callback.answer("دستگاه پیدا نشد.", show_alert=True)
+        secret = await rotate_sms_device_secret(session, merchant, row)
+        await session.commit()
+    await callback.message.answer(success("Secret دستگاه تعویض شد", f"Device: <code>{esc(row.device_id)}</code>\nSecret جدید: <code>{esc(secret)}</code>", footer="Secret قبلی از همین لحظه نامعتبر است."))
+    await callback.answer()
+
+
 @router.message(Command("github"))
 async def github_status(message: Message):
     async with SessionLocal() as session:
@@ -1964,7 +2134,7 @@ async def update_help(callback: CallbackQuery):
 
 
 @router.message(F.document)
-async def release_upload(message: Message):
+async def release_upload(message: Message, state: FSMContext):
     async with SessionLocal() as session:
         admin = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
         if not admin or not admin.is_admin:
@@ -1974,36 +2144,74 @@ async def release_upload(message: Message):
     if not message.document.file_name.lower().endswith(".zip"):
         return await message.answer(warning("فرمت فایل پشتیبانی نمی‌شود", "فقط بسته ZIP نسخه جدید پذیرفته می‌شود."))
 
-    status = await message.answer(info("در حال بررسی بسته", "ساختار فایل و اطلاعات نسخه در حال اعتبارسنجی است."))
+    data = await state.get_data()
+    current_state = await state.get_state()
+    target = data.get("release_target") if current_state == AdminReleaseState.waiting_zip.state else "production"
+    target = target if target in {"staging", "production"} else "production"
+    target_branch = settings.release_staging_branch if target == "staging" else branch
+
+    status = await message.answer(info("در حال بررسی بسته", f"هدف: <b>{'Staging' if target == 'staging' else 'Production'}</b>\nساختار، Syntax، Migration و دسترسی GitHub در حال بررسی است."))
     buffer = io.BytesIO()
     await message.bot.download(message.document, destination=buffer)
+    package = None
     try:
         package = validate_release_zip(buffer.getvalue())
-        await status.edit_text(info("بسته معتبر است", f"نسخه <code>{esc(package.version)}</code> در حال انتشار در GitHub است."))
-        publisher = GitHubPublisher(settings.github_token, repository, branch or "main")
-        commit_sha = await publisher.publish(package)
+        publisher = GitHubPublisher(settings.github_token or "", repository, branch or "main")
+        preflight = await publisher.preflight(needs_workflows=bool(package.validation.get("workflow_files")))
+        await status.edit_text(
+            info(
+                "بسته معتبر و Preflight موفق است",
+                "\n".join([
+                    f"نسخه: <code>{esc(package.version)}</code>",
+                    f"SHA-256: <code>{package.sha256[:16]}…</code>",
+                    f"فایل‌ها: <b>{package.validation['file_count']}</b>",
+                    f"Python Compile: <b>{package.validation['python_files_compiled']}</b>",
+                    f"شاخه مقصد: <code>{esc(target_branch)}</code>",
+                    f"HEAD فعلی: <code>{esc(preflight['head'][:12])}</code>",
+                ]),
+            )
+        )
+        result = await publisher.publish(package, branch=target_branch)
+        update_status = "staged" if target == "staging" else "published"
         async with SessionLocal() as session:
             session.add(
                 UpdateLog(
                     version=package.version,
-                    commit_sha=commit_sha,
-                    status="published",
+                    commit_sha=result.commit_sha,
+                    previous_commit_sha=result.previous_commit_sha,
+                    package_sha256=package.sha256,
+                    status=update_status,
                     message=package.description,
+                    validation_json=json.dumps(package.validation, ensure_ascii=False),
                     telegram_user_id=message.from_user.id,
                 )
             )
             await session.commit()
+        await state.clear()
+        footer = (
+            "شاخه آزمایشی آماده است؛ محیط Staging Railway را به این شاخه متصل کنید."
+            if target == "staging"
+            else "Railway Deploy را آغاز می‌کند؛ نسخه فقط پس از موفق‌شدن /ready فعال می‌شود."
+        )
         await status.edit_text(
             success(
-                "نسخه در GitHub منتشر شد",
+                "نسخه منتشر شد",
                 "\n".join([
                     f"📦 نسخه: <code>{esc(package.version)}</code>",
-                    f"🔖 Commit: <code>{commit_sha[:12]}</code>",
-                    "🚄 Railway باید استقرار خودکار را آغاز کند.",
+                    f"🌿 شاخه: <code>{esc(result.branch)}</code>",
+                    f"🔖 Commit: <code>{result.commit_sha[:12]}</code>",
+                    f"↩️ نقطه Rollback: <code>{result.previous_commit_sha[:12]}</code>",
+                    f"📁 فایل‌های منتشرشده: <b>{result.changed_files}</b>",
                 ]),
-                footer="تا موفق‌شدن Healthcheck، نسخه فعال قبلی به کار خود ادامه می‌دهد.",
+                footer=footer,
             )
         )
     except Exception as exc:
+        await state.clear()
+        try:
+            async with SessionLocal() as session:
+                session.add(UpdateLog(version=package.version if package else "unknown", package_sha256=package.sha256 if package else None, status="failed", message=str(exc)[:2000], validation_json=json.dumps(package.validation, ensure_ascii=False) if package else None, telegram_user_id=message.from_user.id))
+                await session.commit()
+        except Exception:
+            pass
         await status.edit_text(error("انتشار نسخه ناموفق بود", f"<code>{esc(str(exc))}</code>"))
-

@@ -14,7 +14,8 @@ if settings.is_postgres:
     engine_kwargs.update({
         "pool_size": 5,
         "max_overflow": 10,
-        "pool_recycle": 1800,
+        "pool_timeout": 30,
+        "pool_recycle": 300,
     })
 else:
     engine_kwargs["connect_args"] = {"timeout": 30}

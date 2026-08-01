@@ -29,12 +29,10 @@ def _add_columns_if_missing(bind, table_name: str, columns: list[sa.Column]) -> 
 
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = inspect(bind)
-    # Create all new tables in foreign-key order without touching existing rows.
-    existing_tables = set(inspector.get_table_names())
-    for table in Base.metadata.sorted_tables:
-        if table.name not in existing_tables:
-            table.create(bind=bind, checkfirst=True)
+    # Create missing tables through the whole MetaData DDL runner. This is
+    # important for PostgreSQL because invoices and sms_transactions have a
+    # deliberate foreign-key cycle that table-by-table creation cannot order.
+    Base.metadata.create_all(bind=bind, checkfirst=True)
 
     _add_columns_if_missing(bind, "stores", [
         sa.Column("allowed_ips", sa.Text(), nullable=True),

@@ -38,6 +38,8 @@
       <a href="#sms-webhook">وبهوک پیامک</a>
       <a href="#banks">بانک‌های پشتیبانی‌شده</a>
       <a href="#sdks">SDKهای رسمی</a>
+      <a href="#financial-reports">گزارش‌های مالی</a>
+      <a href="#operations">عملیات و سلامت</a>
       <a href="#errors">خطاها و وضعیت‌ها</a>
     </aside>
 
@@ -367,10 +369,46 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
 }</code><button onclick="copyPre(this)">کپی</button></pre>
           <p>نام متغیرها در برنامه‌های مختلف فرق می‌کند. فیلد <code>bank_code</code> اختیاری است و برای اتصال عادی لازم نیست.</p>
         </details>
-        <div class="notice"><b>فهرست دستگاه‌های مجاز:</b> با <code>GET/PUT /api/v1/account/sms-devices</code> شناسه‌های مجاز مانند <code>phone-1</code> را مدیریت کنید. پس از تعریف فهرست، پیامک دستگاه ناشناس با خطای <code>SMS_DEVICE_NOT_TRUSTED</code> رد می‌شود.</div>
+        <h3>ثبت امن دستگاه و امضای HMAC</h3>
+        <div class="notice"><b>روش جدید:</b> دستگاه را با <code>POST /api/v1/account/sms-devices</code> ثبت کنید. پاسخ یک <code>device_secret</code> یک‌بارمصرف نمایشی می‌دهد. پس از ثبت اولین دستگاه امن، درخواست دستگاه ناشناس یا بدون امضای معتبر رد می‌شود.</div>
+        <pre><code>timestamp = UNIX_TIME_SECONDS
+message = timestamp + "." + RAW_HTTP_BODY
+signature = "sha256=" + HMAC_SHA256(device_secret, message)
+
+X-BluePay-Timestamp: 1785600000
+X-BluePay-Signature: sha256=...</code><button onclick="copyPre(this)">کپی</button></pre>
+        <div class="status-table">
+          <div><code>GET /api/v1/account/sms-devices</code><span>مشاهده دستگاه‌ها، آخرین IP، تعداد درخواست و وضعیت امضا</span></div>
+          <div><code>POST /api/v1/account/sms-devices</code><span>ثبت دستگاه و دریافت Secret</span></div>
+          <div><code>POST /api/v1/account/sms-devices/{id}/rotate</code><span>تعویض فوری Secret</span></div>
+          <div><code>DELETE /api/v1/account/sms-devices/{id}</code><span>توقف فوری دستگاه</span></div>
+        </div>
+        <div class="notice warning">هدر زمان بیش از {{ 300 }} ثانیه اختلاف پذیرفته نمی‌شود. امضا باید روی بایت‌های خام همان Body محاسبه شود، نه JSON بازسازی‌شده.</div>
         <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکنید.</div>
       </section>
 
+
+      <section class="card" id="financial-reports">
+        <div class="section-title"><div class="icon-box">📊</div><div><h2>گزارش مالی و خروجی Excel</h2><p>گزارش‌های محرمانه فقط از پنل پذیرنده یا پنل اعضای مجاز تیم</p></div></div>
+        <div class="status-table">
+          <div><code>CSV Invoices</code><span>فاکتورها همراه فروشگاه، وضعیت ریسک، Callback و شماره پیگیری.</span></div>
+          <div><code>CSV Wallet</code><span>دفتر کل افزایشی با مانده قبل و بعد و مرجع عملیات.</span></div>
+          <div><code>Excel</code><span>خلاصه روزانه، ماهانه، فروش هر فروشگاه و تراکنش‌های پرداخت‌شده.</span></div>
+          <div><code>Printable</code><span>صورت‌حساب مالی و صورتحساب خدمات قابل چاپ یا ذخیره PDF.</span></div>
+        </div>
+        <div class="notice warning">مسیرهای گزارش شامل توکن محرمانه پنل هستند و در مستندات عمومی نمایش داده نمی‌شوند.</div>
+      </section>
+
+      <section class="card" id="operations">
+        <div class="section-title"><div class="icon-box">🩺</div><div><h2>سلامت، Timeline و گزارش‌ها</h2><p>مسیرهای عملیاتی نسخه {{ app_version }}</p></div></div>
+        <div class="status-table">
+          <div><code>GET /health</code><span>Liveness سبک؛ فقط زنده‌بودن Process را اعلام می‌کند.</span></div>
+          <div><code>GET /ready</code><span>Readiness واقعی؛ دیتابیس، Migration، Schema Guard، تلگرام و Worker Callback را بررسی می‌کند.</span></div>
+          <div><code>GET /api/v1/invoices/{payment_id}/timeline</code><span>خط زمانی ساخت فاکتور، بازشدن صفحه، تطبیق پیامک، تأیید و Callback</span></div>
+          <div><code>پنل پذیرنده</code><span>خروجی CSV فاکتورها و دفتر کل، اعضای تیم، دستگاه‌های پیامک و Audit Log</span></div>
+        </div>
+        <div class="notice">در Deploy جدید، Railway باید Healthcheck را روی <code>/ready</code> اجرا کند. اگر Migration یا Schema Guard شکست بخورد، نسخه جدید در حالت تعمیر می‌ماند و پاسخ 503 می‌دهد.</div>
+      </section>
 
       <section class="card" id="banks">
         <div class="section-title"><div class="icon-box">🏦</div><div><h2>بانک‌ها و برندهای پشتیبانی‌شده</h2><p>تشخیص خودکار بانک از فرستنده و متن واقعی پیامک</p></div></div>

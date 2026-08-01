@@ -9,7 +9,7 @@ from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, Message
 from aiogram.types import InlineKeyboardMarkup as TelegramInlineKeyboardMarkup
 
 from app.services.appearance_service import InlineKeyboardMarkup
@@ -21,6 +21,7 @@ from app.bot.states import (
     AdminAppearanceEmojiState,
     AdminFeeState,
     AdminRequiredChannelState,
+    AdminReleaseState,
     AdminSmsApproveState,
     AdminWalletAdjustState,
 )
@@ -63,6 +64,9 @@ from app.services.appearance_service import (
 )
 from app.services.callback_service import send_paid_callback
 from app.services.integration_service import merchant_docs_url, merchant_sms_webhook_url
+from app.services.diagnostics_service import collect_diagnostics, diagnostics_bytes
+from app.services.github_service import GitHubPublisher
+from app.services.startup_service import runtime_status
 from app.services.invoice_service import confirm_invoice_paid, release_invoice_reservation
 from app.services.settings_service import get_fee_defaults, set_fee_defaults
 from app.services.storage_service import storage
@@ -1680,14 +1684,18 @@ async def admin_system(callback: CallbackQuery):
             f"⚠️ آخرین خطا: <code>{esc(str(backup.get('last_error') or 'بدون خطا'))[:500]}</code>",
             "",
             f"🚀 آخرین نسخه منتشرشده: <code>{esc(last_update.version if last_update else '-')}</code>",
+            f"🧱 Migration: <code>{esc(runtime_status.migration_revision or '-')}</code>",
+            f"🤖 دریافت تلگرام: <b>{esc(runtime_status.telegram_mode)}</b>",
+            f"✅ Readiness: <b>{'آماده' if runtime_status.ready else 'در حال تعمیر'}</b>",
         ],
         subtitle="نسخه، استقرار، پشتیبان‌گیری و دسترس‌پذیری",
         footer="در صورت مشاهده خطا، پیش از انتشار نسخه جدید یک پشتیبان فوری تهیه کنید.",
     )
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🩺 اجرای عیب‌یابی کامل", callback_data="admin:diagnostics")],
             [InlineKeyboardButton(text="💾 تهیه پشتیبان فوری", callback_data="admin:backup")],
-            [InlineKeyboardButton(text="📦 انتشار نسخه جدید", callback_data="admin:update")],
+            [InlineKeyboardButton(text="📦 انتشار و Rollback", callback_data="admin:update")],
             [InlineKeyboardButton(text="‹ بازگشت به مرکز مدیریت", callback_data="admin:panel")],
         ]
     )
@@ -1708,24 +1716,125 @@ async def admin_backup(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "admin:update")
-async def admin_update(callback: CallbackQuery):
+async def admin_update(callback: CallbackQuery, state: FSMContext):
     if not await require_admin_callback(callback):
         return
-    await callback.message.answer(
+    await state.clear()
+    async with SessionLocal() as session:
+        rows = list((await session.scalars(select(UpdateLog).order_by(UpdateLog.id.desc()).limit(5))).all())
+    history = [f"{row.version} · {row.status} · {(row.commit_sha or '-')[:12]}" for row in rows]
+    await callback.message.edit_text(
         panel(
             "📦",
-            "انتشار نسخه جدید",
+            "مدیریت انتشار و بازگشت نسخه",
             [
-                "فایل ZIP نسخه را در همین گفتگو ارسال کنید.",
-                "بسته پیش از انتشار از نظر ساختار، فایل‌های ضروری و شماره نسخه اعتبارسنجی می‌شود.",
-                "پس از ثبت Commit در GitHub، Railway استقرار خودکار را آغاز خواهد کرد.",
+                "بسته قبل از انتشار از نظر ZIP، Syntax، فایل‌های ضروری، Migration و فایل‌های محرمانه بررسی می‌شود.",
+                "انتشار آزمایشی روی شاخه جدا انجام می‌شود و Production را تغییر نمی‌دهد.",
+                "Rollback شاخه Production را به Commit پیش از آخرین انتشار موفق بازمی‌گرداند.",
+                "",
+                "<b>آخرین عملیات‌ها</b>",
+                *(history or ["هنوز انتشاری ثبت نشده است."]),
             ],
-            subtitle="به‌روزرسانی امن از داخل ربات",
-            footer="فایل‌های محرمانه، توکن‌ها و پایگاه داده را داخل ZIP قرار ندهید.",
+            subtitle="Preflight، Staging، Production و Rollback",
+            footer="برای Production مسیر /ready باید پس از Deploy پاسخ 200 بدهد.",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧪 انتشار آزمایشی", callback_data="admin:update:staging")],
+            [InlineKeyboardButton(text="🚀 انتشار Production", callback_data="admin:update:production")],
+            [InlineKeyboardButton(text="🔐 تست دسترسی GitHub", callback_data="admin:update:preflight")],
+            [InlineKeyboardButton(text="↩️ بازگشت آخرین انتشار", callback_data="admin:update:rollback:confirm")],
+            [InlineKeyboardButton(text="‹ سلامت سامانه", callback_data="admin:system")],
+        ]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.in_({"admin:update:staging", "admin:update:production"}))
+async def admin_update_choose_target(callback: CallbackQuery, state: FSMContext):
+    if not await require_admin_callback(callback):
+        return
+    target = "staging" if callback.data.endswith("staging") else "production"
+    await state.set_state(AdminReleaseState.waiting_zip)
+    await state.update_data(release_target=target)
+    await callback.message.answer(
+        info(
+            "فایل ZIP را ارسال کنید",
+            "هدف انتشار: <b>آزمایشی</b>" if target == "staging" else "هدف انتشار: <b>Production</b>",
+            footer="پس از دریافت، Preflight و اعتبارسنجی کامل انجام می‌شود.",
         )
     )
     await callback.answer()
 
+
+@router.callback_query(F.data == "admin:update:preflight")
+async def admin_update_preflight(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    await callback.answer("در حال بررسی GitHub...", show_alert=False)
+    try:
+        result = await GitHubPublisher(settings.github_token or "", settings.github_repository, settings.github_branch).preflight()
+        await callback.message.answer(success("دسترسی GitHub معتبر است", "\n".join([
+            f"مخزن: <code>{esc(result['repository'])}</code>",
+            f"شاخه: <code>{esc(result['branch'])}</code>",
+            f"HEAD: <code>{esc(result['head'][:12])}</code>",
+            f"Push: <b>{'بله' if (result.get('permissions') or {}).get('push', True) else 'خیر'}</b>",
+        ])))
+    except Exception as exc:
+        await callback.message.answer(error("بررسی GitHub ناموفق بود", f"<code>{esc(str(exc))}</code>"))
+
+
+@router.callback_query(F.data == "admin:update:rollback:confirm")
+async def admin_update_rollback_confirm(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        row = await session.scalar(select(UpdateLog).where(UpdateLog.status == "published", UpdateLog.previous_commit_sha.is_not(None)).order_by(UpdateLog.id.desc()).limit(1))
+    if not row:
+        return await callback.answer("نسخه قابل بازگشتی ثبت نشده است.", show_alert=True)
+    await callback.message.edit_text(
+        warning("تأیید Rollback", f"نسخه <code>{esc(row.version)}</code> به Commit قبلی <code>{esc(row.previous_commit_sha[:12])}</code> بازگردد؟"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ تأیید بازگشت", callback_data=f"admin:update:rollback:{row.id}")],
+            [InlineKeyboardButton(text="انصراف", callback_data="admin:update")],
+        ]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:update:rollback:"))
+async def admin_update_rollback(callback: CallbackQuery):
+    admin = await require_admin_callback(callback)
+    if not admin:
+        return
+    update_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        row = await session.get(UpdateLog, update_id)
+        if not row or not row.previous_commit_sha:
+            return await callback.answer("اطلاعات Rollback کامل نیست.", show_alert=True)
+    await callback.answer("در حال بازگردانی شاخه...", show_alert=False)
+    try:
+        sha = await GitHubPublisher(settings.github_token or "", settings.github_repository, settings.github_branch).rollback(row.previous_commit_sha)
+        async with SessionLocal() as session:
+            session.add(UpdateLog(version=f"rollback-{row.version}", commit_sha=sha, previous_commit_sha=row.commit_sha, status="rollback", message=f"Rollback of {row.version}", rollback_of_update_id=row.id, telegram_user_id=admin.telegram_user_id))
+            await session.commit()
+        await callback.message.edit_text(success("Rollback ثبت شد", f"شاخه Production به <code>{esc(sha[:12])}</code> بازگشت. Railway باید Deploy جدید را آغاز کند."), reply_markup=admin_menu())
+    except Exception as exc:
+        await callback.message.answer(error("Rollback ناموفق بود", f"<code>{esc(str(exc))}</code>"))
+
+
+@router.callback_query(F.data == "admin:diagnostics")
+async def admin_diagnostics(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    await callback.answer("در حال اجرای تست‌ها...", show_alert=False)
+    payload = await collect_diagnostics(test_github=True, test_telegram=callback.bot)
+    checks = payload.get("checks", {})
+    lines = []
+    for name in ("database", "business_queries", "telegram", "github"):
+        item = checks.get(name) or {}
+        lines.append(f"{'🟢' if item.get('ok') else '🔴'} {name}: {esc(str(item.get('error') or 'سالم'))[:250]}")
+    await callback.message.answer(panel("🩺", "گزارش عیب‌یابی سامانه", lines, footer="فایل JSON کامل نیز ارسال شد."))
+    await callback.message.answer_document(BufferedInputFile(diagnostics_bytes(payload), filename=f"bluepay-diagnostics-{APP_VERSION}.json"))
 
 
 @router.callback_query(F.data == "admin:reconciliation")

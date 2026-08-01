@@ -104,6 +104,17 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
         changed |= (duplicate_key_update.rowcount or 0) > 0
         await connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_store_one_active_api_key ON store_api_keys (store_id) WHERE is_active = 1"))
 
+        update_columns = await _sqlite_columns(connection, "update_logs")
+        if update_columns:
+            for name, ddl in {
+                "previous_commit_sha": "VARCHAR(80)",
+                "package_sha256": "VARCHAR(64)",
+                "validation_json": "TEXT",
+                "rollback_of_update_id": "INTEGER",
+            }.items():
+                changed |= await _sqlite_add(connection, "update_logs", update_columns, name, ddl)
+            await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_update_logs_rollback_of_update_id ON update_logs (rollback_of_update_id)"))
+
         # Protect pending invoices created by older versions.
         await connection.execute(text("INSERT OR IGNORE INTO amount_reservations (card_id, invoice_token, payable_amount_rial, expires_at, created_at, updated_at) SELECT card_id, token, payable_amount_rial, expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM invoices WHERE status = 'pending'"))
     return changed
@@ -143,6 +154,19 @@ async def _run_postgres_migrations(engine: AsyncEngine) -> bool:
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reference_id VARCHAR(120)",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS metadata_json TEXT",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reversed_entry_id BIGINT",
+        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS previous_commit_sha VARCHAR(80)",
+        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS package_sha256 VARCHAR(64)",
+        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS validation_json TEXT",
+        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS rollback_of_update_id INTEGER",
+        "CREATE INDEX IF NOT EXISTS ix_store_api_keys_is_legacy ON store_api_keys (is_legacy)",
+        "CREATE INDEX IF NOT EXISTS ix_invoices_idempotency_key ON invoices (idempotency_key)",
+        "CREATE INDEX IF NOT EXISTS ix_invoices_environment ON invoices (environment)",
+        "CREATE INDEX IF NOT EXISTS ix_invoices_risk_status ON invoices (risk_status)",
+        "CREATE INDEX IF NOT EXISTS ix_invoices_callback_status ON invoices (callback_status)",
+        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reference_type ON wallet_ledger (reference_type)",
+        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reference_id ON wallet_ledger (reference_id)",
+        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reversed_entry_id ON wallet_ledger (reversed_entry_id)",
+        "CREATE INDEX IF NOT EXISTS ix_update_logs_rollback_of_update_id ON update_logs (rollback_of_update_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_client_order ON invoices (store_id, client_order_id) WHERE store_id IS NOT NULL AND client_order_id IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_idempotency ON invoices (store_id, idempotency_key) WHERE store_id IS NOT NULL AND idempotency_key IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_store_one_active_api_key ON store_api_keys (store_id) WHERE is_active = TRUE",

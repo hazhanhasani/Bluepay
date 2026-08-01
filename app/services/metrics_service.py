@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import CallbackEvent, Invoice, Merchant, ReconciliationCase, SmsTransaction, Store
+from app.models import CallbackEvent, Invoice, Merchant, MerchantTeamMember, PaymentEvent, ReconciliationCase, SmsDevice, SmsTransaction, Store
 
 
 async def prometheus_metrics(session: AsyncSession) -> str:
@@ -19,6 +19,9 @@ async def prometheus_metrics(session: AsyncSession) -> str:
         "bluepay_callbacks_pending": int(await session.scalar(select(func.count(CallbackEvent.id)).where(CallbackEvent.status.in_(["pending", "retry", "processing"]))) or 0),
         "bluepay_sms_review": int(await session.scalar(select(func.count(SmsTransaction.id)).where(SmsTransaction.status.in_(["review", "unmatched"]))) or 0),
         "bluepay_reconciliation_open": int(await session.scalar(select(func.count(ReconciliationCase.id)).where(ReconciliationCase.status == "open")) or 0),
+        "bluepay_team_members_active": int(await session.scalar(select(func.count(MerchantTeamMember.id)).where(MerchantTeamMember.is_active.is_(True))) or 0),
+        "bluepay_sms_devices_active": int(await session.scalar(select(func.count(SmsDevice.id)).where(SmsDevice.is_active.is_(True))) or 0),
+        "bluepay_payment_events_24h": int(await session.scalar(select(func.count(PaymentEvent.id)).where(PaymentEvent.created_at >= day)) or 0),
     }
     lines = ["# BluePay operational metrics"]
     for key, value in values.items():

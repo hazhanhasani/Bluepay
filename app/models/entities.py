@@ -353,6 +353,61 @@ class UpdateLog(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     version: Mapped[str] = mapped_column(String(80))
     commit_sha: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    previous_commit_sha: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    package_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="received")
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    validation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rollback_of_update_id: Mapped[int | None] = mapped_column(ForeignKey("update_logs.id"), nullable=True, index=True)
     telegram_user_id: Mapped[int] = mapped_column(BigInteger)
+
+class PaymentEvent(TimestampMixin, Base):
+    """Append-only payment timeline event used for support and audit."""
+
+    __tablename__ = "payment_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id", ondelete="CASCADE"), index=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    store_id: Mapped[int | None] = mapped_column(ForeignKey("stores.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="recorded", server_default="recorded", index=True)
+    actor_type: Mapped[str] = mapped_column(String(32), default="system", server_default="system", index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    request_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    detail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MerchantTeamMember(TimestampMixin, Base):
+    """Role-based access entry for a merchant team member."""
+
+    __tablename__ = "merchant_team_members"
+    __table_args__ = (UniqueConstraint("merchant_id", "telegram_user_id", name="uq_merchant_team_member"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    role: Mapped[str] = mapped_column(String(24), default="viewer", server_default="viewer", index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    invited_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_access_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SmsDevice(TimestampMixin, Base):
+    """Registered SMS Forwarder device with derived HMAC credentials."""
+
+    __tablename__ = "sms_devices"
+    __table_args__ = (UniqueConstraint("merchant_id", "device_id", name="uq_sms_device_merchant_device"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[str] = mapped_column(String(120), index=True)
+    name: Mapped[str] = mapped_column(String(120), default="SMS Forwarder")
+    secret_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    allowed_bank_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", index=True)
+    require_hmac: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_signature_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    request_count: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")

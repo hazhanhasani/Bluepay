@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 from app.core.config import settings
 from app.models import AmountReservation, BankCard, Invoice, Merchant, WalletLedger
 from app.services.callback_outbox_service import enqueue_live_paid_callback
+from app.services.timeline_service import record_payment_event
 
 VALID_FEE_MODES = {"customer", "split", "merchant"}
 API_FEE_MODES = VALID_FEE_MODES | {"default"}
@@ -178,6 +179,18 @@ async def create_invoice(
     )
     session.add(invoice)
     await session.flush()
+    await record_payment_event(
+        session,
+        invoice,
+        "invoice.created",
+        detail={
+            "order_id": invoice.client_order_id or invoice.order_id,
+            "payable_amount_rial": invoice.payable_amount_rial,
+            "environment": invoice.environment,
+            "risk_score": invoice.risk_score,
+            "risk_status": invoice.risk_status,
+        },
+    )
     if fee > 0:
         balance_before = locked.wallet_balance_rial
         reserved_before = locked.reserved_balance_rial
@@ -268,6 +281,12 @@ async def create_wallet_topup_invoice(
     )
     session.add(invoice)
     await session.flush()
+    await record_payment_event(
+        session,
+        invoice,
+        "invoice.created",
+        detail={"purpose": "wallet_topup", "payable_amount_rial": invoice.payable_amount_rial},
+    )
     return invoice
 
 
@@ -303,6 +322,13 @@ async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, s
                 idempotency_key=f"release:{invoice.id}",
             )
         )
+    await record_payment_event(
+        session,
+        invoice,
+        f"invoice.{status}",
+        status=status,
+        detail={"released_fee_rial": fee},
+    )
     return True
 
 
@@ -395,6 +421,15 @@ async def confirm_invoice_paid(
             )
         )
 
+    await record_payment_event(
+        session,
+        invoice,
+        "invoice.paid",
+        status="paid",
+        actor_type="bank_sms",
+        actor_id=sms_id,
+        detail={"reference_number": reference_number, "purpose": invoice.purpose},
+    )
     await session.flush()
     if invoice.purpose == "payment":
         await enqueue_live_paid_callback(session, invoice)

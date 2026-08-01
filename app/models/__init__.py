@@ -8,10 +8,13 @@ from app.models.entities import (
     IdempotencyRecord,
     Invoice,
     Merchant,
+    MerchantTeamMember,
+    PaymentEvent,
     RateLimitBucket,
     ReconciliationCase,
     RiskEvent,
     SandboxInvoice,
+    SmsDevice,
     SmsTransaction,
     Store,
     StoreApiKey,
@@ -21,7 +24,7 @@ from app.models.entities import (
 
 __all__ = [
     "AmountReservation", "AppSetting", "AuditLog", "BankCard", "CallbackAttempt",
-    "CallbackEvent", "IdempotencyRecord", "Invoice", "Merchant", "ReconciliationCase",
-    "RiskEvent", "RateLimitBucket", "SandboxInvoice", "SmsTransaction", "Store", "StoreApiKey",
+    "CallbackEvent", "IdempotencyRecord", "Invoice", "Merchant", "MerchantTeamMember", "PaymentEvent", "ReconciliationCase",
+    "RiskEvent", "RateLimitBucket", "SandboxInvoice", "SmsDevice", "SmsTransaction", "Store", "StoreApiKey",
     "UpdateLog", "WalletLedger",
 ]

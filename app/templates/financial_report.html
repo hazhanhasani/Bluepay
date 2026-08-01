@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>{% if report_kind == 'service_invoice' %}صورتحساب خدمات{% else %}گزارش مالی{% endif %} | {{ merchant.name }}</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <style>
+    :root{font-family:Tahoma,Arial,sans-serif;color:#10213b;background:#eef3f9}*{box-sizing:border-box}body{margin:0}.page{width:min(1050px,94%);margin:28px auto;background:#fff;border:1px solid #dbe4ef;border-radius:22px;padding:36px;box-shadow:0 24px 65px rgba(29,55,90,.12)}.head{display:flex;align-items:flex-start;justify-content:space-between;gap:30px;border-bottom:2px solid #1769e0;padding-bottom:22px}.brand{display:flex;gap:15px;align-items:center}.brand img{width:62px;height:62px;border-radius:18px;object-fit:cover}.brand h1{font-size:24px;margin:0 0 7px}.brand p,.meta p{margin:4px 0;color:#60718a;font-size:12px}.meta{text-align:left}.meta b{color:#1769e0}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:25px 0}.kpis div{border:1px solid #dce6f2;border-radius:14px;padding:15px;background:#f8fbff}.kpis span{display:block;font-size:10px;color:#71839a}.kpis strong{display:block;font-size:18px;margin-top:8px}.notice{padding:13px 16px;border-radius:12px;background:#edf6ff;border:1px solid #c8e2ff;color:#315980;font-size:11px;line-height:1.9}h2{font-size:16px;margin:30px 0 12px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #dfe7f0;padding:9px;text-align:center}th{background:#145fc8;color:#fff}tbody tr:nth-child(even){background:#f8fafc}.footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid #dce6f2;margin-top:28px;padding-top:18px;color:#71839a;font-size:10px}.actions{display:flex;gap:10px;justify-content:center;margin:20px}.actions button{border:0;border-radius:10px;background:#1769e0;color:white;padding:11px 20px;font:inherit;font-weight:bold;cursor:pointer}@media(max-width:720px){.page{padding:20px}.head{display:block}.meta{text-align:right;margin-top:15px}.kpis{grid-template-columns:1fr 1fr}.table-wrap{overflow:auto}table{min-width:700px}}@media print{body{background:#fff}.page{width:100%;margin:0;border:0;border-radius:0;box-shadow:none;padding:15mm}.actions{display:none}}
+  </style>
+</head>
+<body>
+<div class="actions"><button onclick="window.print()">چاپ یا ذخیره PDF</button></div>
+<main class="page">
+  <header class="head">
+    <div class="brand"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"><div><h1>{% if report_kind == 'service_invoice' %}صورتحساب خدمات بلوپی{% else %}صورت‌حساب مالی پذیرنده{% endif %}</h1><p>{{ merchant.name }} · BP-{{ "%06d"|format(merchant.id) }}</p></div></div>
+    <div class="meta"><p>بازه گزارش: <b>{{ summary.days }} روز اخیر</b></p><p>نسخه سامانه: BluePay {{ app_version }}</p><p>شماره سند: BP-{{ merchant.id }}-{{ summary.days }}-{{ summary.paid_count }}</p></div>
+  </header>
+
+  <section class="kpis">
+    <div><span>پرداخت موفق</span><strong>{{ summary.paid_count }}</strong></div>
+    <div><span>حجم ناخالص</span><strong>{{ "{:,}".format(toman(summary.gross_rial)) }} تومان</strong></div>
+    <div><span>مبلغ سفارش‌ها</span><strong>{{ "{:,}".format(toman(summary.base_rial)) }} تومان</strong></div>
+    <div><span>{% if report_kind == 'service_invoice' %}جمع خدمات بلوپی{% else %}کارمزد ثبت‌شده{% endif %}</span><strong>{{ "{:,}".format(toman(summary.fee_rial)) }} تومان</strong></div>
+  </section>
+
+  {% if report_kind == 'service_invoice' %}
+  <div class="notice">این سند، صورتحساب عملیاتی خدمات ثبت‌شده در سامانه بلوپی است. اعتبار مالیاتی یا رسمی آن وابسته به اطلاعات ثبتی و الزامات قانونی ارائه‌دهنده خدمات است.</div>
+  {% else %}
+  <div class="notice">این گزارش مستقیماً از دفتر کل، فاکتورها و رویدادهای ثبت‌شده سامانه تولید شده است. اصلاح رکورد مالی با تراکنش معکوس انجام می‌شود و سوابق قبلی حذف نمی‌شوند.</div>
+  {% endif %}
+
+  <h2>فروش به تفکیک فروشگاه</h2>
+  <div class="table-wrap"><table><thead><tr><th>کد</th><th>فروشگاه</th><th>تعداد</th><th>مبلغ سفارش</th><th>مبلغ نهایی</th><th>کارمزد</th></tr></thead><tbody>
+    {% for item in breakdown.stores %}<tr><td>{{ item.store_code }}</td><td>{{ item.store_name }}</td><td>{{ item.count }}</td><td>{{ "{:,}".format(toman(item.base_rial)) }}</td><td>{{ "{:,}".format(toman(item.gross_rial)) }}</td><td>{{ "{:,}".format(toman(item.fee_rial)) }}</td></tr>{% else %}<tr><td colspan="6">تراکنش پرداخت‌شده‌ای در این بازه نیست.</td></tr>{% endfor %}
+  </tbody></table></div>
+
+  <h2>خلاصه ماهانه</h2>
+  <div class="table-wrap"><table><thead><tr><th>ماه</th><th>تعداد</th><th>مبلغ سفارش</th><th>مبلغ نهایی</th><th>کارمزد</th></tr></thead><tbody>
+    {% for item in breakdown.monthly %}<tr><td>{{ item.month }}</td><td>{{ item.count }}</td><td>{{ "{:,}".format(toman(item.base_rial)) }}</td><td>{{ "{:,}".format(toman(item.gross_rial)) }}</td><td>{{ "{:,}".format(toman(item.fee_rial)) }}</td></tr>{% else %}<tr><td colspan="5">داده‌ای وجود ندارد.</td></tr>{% endfor %}
+  </tbody></table></div>
+
+  {% if report_kind != 'service_invoice' %}
+  <h2>آخرین تراکنش‌های پرداخت‌شده</h2>
+  <div class="table-wrap"><table><thead><tr><th>سفارش</th><th>فروشگاه</th><th>مبلغ</th><th>کارمزد</th><th>پیگیری</th><th>Callback</th><th>ریسک</th></tr></thead><tbody>
+    {% for item in breakdown.invoices[:50] %}<tr><td>{{ item.order_id }}</td><td>{{ item.store }}</td><td>{{ "{:,}".format(toman(item.payable_amount_rial)) }}</td><td>{{ "{:,}".format(toman(item.fee_amount_rial)) }}</td><td>{{ item.reference_number or '-' }}</td><td>{{ item.callback_status }}</td><td>{{ item.risk_status }} / {{ item.risk_score }}</td></tr>{% else %}<tr><td colspan="7">تراکنشی وجود ندارد.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endif %}
+
+  <footer class="footer"><span>تولیدشده توسط BluePay</span><span>موارد مشکوک: {{ summary.suspicious_count }} · مغایرت باز: {{ summary.open_reconciliation_count }}</span></footer>
+</main>
+</body>
+</html>
