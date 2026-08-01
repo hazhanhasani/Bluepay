@@ -37,3 +37,36 @@ def test_default_theme_keeps_telegram_style():
 
 def test_status_marker_is_not_removed():
     assert remove_decorative_prefix("🟢 فروشگاه اصلی") == "🟢 فروشگاه اصلی"
+
+
+def test_exact_emoji_replacement_has_priority():
+    config = AppearanceConfig(
+        button_theme=THEME_SEMANTIC,
+        premium_emoji_enabled=True,
+        emoji_ids={"card": "111"},
+        exact_emoji_ids={"💳": "222"},
+    )
+    button = style_button(InlineKeyboardButton(text="💳 کارت‌های مقصد", callback_data="cards"), config)
+    assert button.icon_custom_emoji_id == "222"
+    assert button.text == "کارت‌های مقصد"
+
+
+def test_discovered_catalog_contains_real_bot_emojis():
+    from app.services.appearance_service import discover_bot_emojis, emoji_from_token, emoji_token
+
+    catalog = dict(discover_bot_emojis())
+    assert catalog["💳"] > 0
+    assert catalog["🧾"] > 0
+    assert emoji_from_token(emoji_token("💳")) == "💳"
+
+
+def test_premium_html_skips_code_blocks():
+    from app.services.appearance_service import premiumize_html
+
+    config = AppearanceConfig(
+        premium_emoji_enabled=True,
+        exact_emoji_ids={"💳": "123456789"},
+    )
+    rendered = premiumize_html("💳 <b>کارت</b> <code>💳</code>", config)
+    assert '<tg-emoji emoji-id="123456789">💳</tg-emoji>' in rendered
+    assert "<code>💳</code>" in rendered

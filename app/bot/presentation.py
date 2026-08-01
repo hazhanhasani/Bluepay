@@ -3,6 +3,8 @@ from __future__ import annotations
 import html
 from collections.abc import Iterable
 
+from app.services.appearance_service import premiumize_html
+
 BRAND_NAME = "بلوپی"
 BRAND_EN = "BluePay"
 DIVIDER = "━━━━━━━━━━━━━━━━"
@@ -114,7 +116,7 @@ def panel(
         parts.append(body)
     if footer:
         parts.extend([DIVIDER, footer.strip()])
-    return "\n".join(parts)
+    return premiumize_html("\n".join(parts))
 
 
 def success(title: str, detail: str, *, footer: str | None = None) -> str:
