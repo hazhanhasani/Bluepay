@@ -93,19 +93,20 @@ def wallet_topup_created_menu(payment_url: str) -> InlineKeyboardMarkup:
     )
 
 
-def connection_menu(docs_url: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📚 بازکردن مستندات اختصاصی", url=docs_url)],
-            [
-                InlineKeyboardButton(text="🏪 فروشگاه‌ها و APIها", callback_data="stores"),
-                InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
-            ],
-            [InlineKeyboardButton(text="🔔 Callback پرداخت", callback_data="callback:panel")],
-            [InlineKeyboardButton(text="🧪 آزمایش Callback", callback_data="callback:test")],
-            [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
-        ]
-    )
+def connection_menu(docs_url: str, portal_url: str | None = None) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="📚 مستندات عمومی API", url=docs_url)]]
+    if portal_url:
+        rows.append([InlineKeyboardButton(text="📊 پنل وب پذیرنده", web_app=WebAppInfo(url=portal_url))])
+    rows.extend([
+        [
+            InlineKeyboardButton(text="🏪 فروشگاه‌ها و APIها", callback_data="stores"),
+            InlineKeyboardButton(text="📲 وبهوک پیامک", callback_data="sms:webhook"),
+        ],
+        [InlineKeyboardButton(text="🔔 Callback پرداخت", callback_data="callback:panel")],
+        [InlineKeyboardButton(text="🧪 آزمایش Callback", callback_data="callback:test")],
+        [InlineKeyboardButton(text="⌂ بازگشت به صفحه اصلی", callback_data="home")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def callback_menu(docs_url: str, configured: bool) -> InlineKeyboardMarkup:
@@ -359,6 +360,10 @@ def admin_menu() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🔎 بررسی تراکنش‌ها", callback_data="admin:reviews"),
+                InlineKeyboardButton(text="⚖️ مرکز مغایرت", callback_data="admin:reconciliation"),
+            ],
+            [
+                InlineKeyboardButton(text="📡 صف Callback", callback_data="admin:callbacks"),
                 InlineKeyboardButton(text="💳 کارت‌ها", callback_data="admin:cards"),
             ],
             [

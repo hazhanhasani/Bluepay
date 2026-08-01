@@ -39,7 +39,7 @@ from app.bot.presentation import (
 )
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import BankCard, Invoice, Merchant, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
+from app.models import BankCard, CallbackEvent, Invoice, Merchant, ReconciliationCase, SmsTransaction, Store, StoreApiKey, UpdateLog, WalletLedger
 from app.services.access_service import (
     RequiredChannel,
     add_required_channel,
@@ -1218,15 +1218,23 @@ async def admin_wallet_adjust_amount(message: Message, state: FSMContext):
         signed = amount_rial if data["action"] == "credit" else -amount_rial
         if signed < 0 and merchant.wallet_balance_rial + signed < merchant.reserved_balance_rial:
             return await message.answer("این کسر باعث می‌شود موجودی از مبلغ رزروشده کمتر شود؛ مبلغ کمتری وارد کنید.")
+        balance_before = merchant.wallet_balance_rial
+        reserved_before = merchant.reserved_balance_rial
         merchant.wallet_balance_rial += signed
+        adjustment_key = f"admin-adjust:{message.message_id}:{merchant.id}:{secrets.token_hex(4)}"
         session.add(
             WalletLedger(
                 merchant_id=merchant.id,
                 entry_type="admin_credit" if signed > 0 else "admin_debit",
                 amount_rial=signed,
+                balance_before_rial=balance_before,
                 balance_after_rial=merchant.wallet_balance_rial,
+                reserved_before_rial=reserved_before,
+                reserved_after_rial=merchant.reserved_balance_rial,
+                reference_type="admin_adjustment",
+                reference_id=adjustment_key,
                 description=f"اصلاح کیف پول توسط مدیر {admin.telegram_user_id}",
-                idempotency_key=f"admin-adjust:{message.message_id}:{merchant.id}:{secrets.token_hex(4)}",
+                idempotency_key=adjustment_key,
             )
         )
         await session.commit()
@@ -1718,3 +1726,132 @@ async def admin_update(callback: CallbackQuery):
     )
     await callback.answer()
 
+
+
+@router.callback_query(F.data == "admin:reconciliation")
+async def admin_reconciliation(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        rows = list((await session.scalars(
+            select(ReconciliationCase).where(ReconciliationCase.status == "open").order_by(ReconciliationCase.id.desc()).limit(20)
+        )).all())
+    if not rows:
+        text = success("مرکز مغایرت", "هیچ مورد بازی برای بررسی وجود ندارد.")
+        keyboard = admin_menu()
+    else:
+        lines = []
+        buttons = []
+        for row in rows:
+            lines.append(f"<b>#{row.id} • {esc(row.case_type)}</b>\nشدت: {esc(row.severity)}\n{esc(short(row.detail, 180))}")
+            buttons.append([InlineKeyboardButton(text=f"✅ بستن مورد #{row.id}", callback_data=f"admin:reconciliation:resolve:{row.id}")])
+        buttons.append([InlineKeyboardButton(text="👑 مرکز مدیریت", callback_data="admin:panel")])
+        text = panel("⚖️", "مرکز تطبیق و مغایرت", lines, subtitle="پیامک بدون فاکتور، ابهام تطبیق و رخدادهای نیازمند بررسی")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:reconciliation:resolve:"))
+async def admin_reconciliation_resolve(callback: CallbackQuery):
+    admin = await require_admin_callback(callback)
+    if not admin:
+        return
+    case_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        row = await session.get(ReconciliationCase, case_id)
+        if not row:
+            return await callback.answer("مورد پیدا نشد.", show_alert=True)
+        row.status = "resolved"
+        row.resolution = "بسته‌شده توسط مدیر از پنل تلگرام"
+        row.resolved_by = str(admin.telegram_user_id)
+        row.resolved_at = datetime.now(timezone.utc)
+        await session.commit()
+    await admin_reconciliation(callback)
+
+
+@router.callback_query(F.data == "admin:callbacks")
+async def admin_callback_queue(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    async with SessionLocal() as session:
+        rows = list((await session.scalars(
+            select(CallbackEvent).order_by(CallbackEvent.id.desc()).limit(20)
+        )).all())
+    lines = []
+    buttons = []
+    for row in rows:
+        lines.append(f"<b>#{row.id} • {esc(row.event_type)}</b>\nوضعیت: {esc(row.status)} • تلاش: {row.attempt_count}/{row.max_attempts}\nنتیجه: <code>{esc(row.last_result or '-')}</code>")
+        if row.status == "failed":
+            buttons.append([InlineKeyboardButton(text=f"↻ ارسال مجدد Callback #{row.id}", callback_data=f"admin:callbacks:retry:{row.id}")])
+    if not rows:
+        lines = ["هنوز رویداد Callback ثبت نشده است."]
+    buttons.append([InlineKeyboardButton(text="👑 مرکز مدیریت", callback_data="admin:panel")])
+    await callback.message.edit_text(
+        panel("📡", "صف پایدار Callback", lines, subtitle="وضعیت تحویل و تلاش‌های ثبت‌شده در Outbox"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:callbacks:retry:"))
+async def admin_callback_retry(callback: CallbackQuery):
+    if not await require_admin_callback(callback):
+        return
+    event_id = int(callback.data.rsplit(":", 1)[1])
+    async with SessionLocal() as session:
+        row = await session.get(CallbackEvent, event_id)
+        if not row:
+            return await callback.answer("رویداد پیدا نشد.", show_alert=True)
+        row.status = "retry"
+        row.attempt_count = 0
+        row.next_attempt_at = datetime.now(timezone.utc)
+        row.locked_at = None
+        row.last_result = "manual_retry_requested"
+        await session.commit()
+    await admin_callback_queue(callback)
+
+
+@router.message(Command("reverseledger"))
+async def admin_reverse_ledger(message: Message):
+    admin = await require_admin_message(message)
+    if not admin:
+        return
+    parts = (message.text or "").split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return await message.answer("فرمت: <code>/reverseledger LEDGER_ID</code>")
+    ledger_id = int(parts[1])
+    async with SessionLocal() as session:
+        source = await session.get(WalletLedger, ledger_id)
+        if not source:
+            return await message.answer("رکورد دفتر کل پیدا نشد.")
+        existing = await session.scalar(select(WalletLedger).where(WalletLedger.reversed_entry_id == source.id))
+        if existing:
+            return await message.answer(f"این رکورد قبلاً با ورودی #{existing.id} معکوس شده است.")
+        merchant = await session.scalar(select(Merchant).where(Merchant.id == source.merchant_id).with_for_update())
+        if not merchant:
+            return await message.answer("پذیرنده دفتر کل پیدا نشد.")
+        reversal_amount = -source.amount_rial
+        if reversal_amount < 0 and merchant.wallet_balance_rial + reversal_amount < merchant.reserved_balance_rial:
+            return await message.answer("معکوس‌سازی باعث نقض موجودی رزروشده می‌شود و انجام نشد.")
+        balance_before = merchant.wallet_balance_rial
+        reserved_before = merchant.reserved_balance_rial
+        merchant.wallet_balance_rial += reversal_amount
+        row = WalletLedger(
+            merchant_id=merchant.id,
+            invoice_id=source.invoice_id,
+            entry_type=f"reversal:{source.entry_type}"[:40],
+            amount_rial=reversal_amount,
+            balance_before_rial=balance_before,
+            balance_after_rial=merchant.wallet_balance_rial,
+            reserved_before_rial=reserved_before,
+            reserved_after_rial=merchant.reserved_balance_rial,
+            reference_type="ledger_reversal",
+            reference_id=str(source.id),
+            description=f"تراکنش معکوس دفتر کل #{source.id} توسط مدیر {admin.telegram_user_id}",
+            idempotency_key=f"ledger-reversal:{source.id}",
+            reversed_entry_id=source.id,
+        )
+        session.add(row)
+        await session.commit()
+    await message.answer(f"✅ رکورد #{source.id} بدون ویرایش سابقه، با ورودی معکوس جدید اصلاح شد.")

@@ -1,24 +1,40 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from pathlib import Path
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Zero-configuration runtime settings.
+    """Runtime settings with backward-compatible zero-config defaults.
 
-    Only BOT_TOKEN and GITHUB_TOKEN are supplied by the user. Railway injects
-    repository, branch, domain and port metadata automatically for GitHub deploys.
+    BOT_TOKEN and GITHUB_TOKEN remain sufficient for SQLite mode. Setting a
+    Railway DATABASE_URL transparently upgrades the primary database to
+    PostgreSQL without changing the API or bot configuration.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
-    bot_token: str
-    github_token: str
-    port: int = 8080
-    default_fee_rial: int = 20_000
-    invoice_ttl_minutes: int = 30
+    bot_token: str = Field(alias="BOT_TOKEN")
+    github_token: str | None = Field(default=None, alias="GITHUB_TOKEN")
+    database_url: str | None = Field(default=None, alias="DATABASE_URL")
+    explicit_base_url: str = Field(default="", alias="BASE_URL")
+    port: int = Field(default=8080, alias="PORT")
+    default_fee_rial: int = Field(default=20_000, alias="DEFAULT_FEE_RIAL")
+    invoice_ttl_minutes: int = Field(default=30, alias="INVOICE_TTL_MINUTES")
+    portal_secret: str | None = Field(default=None, alias="PORTAL_SECRET")
+    sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
+    environment: str = Field(default="production", alias="APP_ENV")
+    callback_worker_interval_seconds: int = Field(default=2, alias="CALLBACK_WORKER_INTERVAL_SECONDS")
+    callback_worker_batch_size: int = Field(default=30, alias="CALLBACK_WORKER_BATCH_SIZE")
+
+    @field_validator("explicit_base_url", mode="before")
+    @classmethod
+    def normalize_base_url(cls, value: str | None) -> str:
+        return (value or "").strip().rstrip("/")
 
     @property
     def github_repository(self) -> str:
@@ -26,13 +42,12 @@ class Settings(BaseSettings):
         name = os.getenv("RAILWAY_GIT_REPO_NAME", "").strip()
         if owner and name:
             return f"{owner}/{name}"
-        # Local development fallback; not shown as an installation setting.
         fallback = os.getenv("GITHUB_REPOSITORY", "").strip()
         if fallback and "/" in fallback:
             return fallback
-        raise RuntimeError(
-            "GitHub repository was not detected. Deploy the service from a GitHub repository on Railway."
-        )
+        # PostgreSQL mode does not require GitHub database storage, but update
+        # publishing can still use the repository metadata when available.
+        return fallback or "unknown/unknown"
 
     @property
     def github_branch(self) -> str:
@@ -44,9 +59,7 @@ class Settings(BaseSettings):
 
     @property
     def data_dir(self) -> Path:
-        # The container filesystem is restored from an encrypted GitHub snapshot
-        # on every cold start, so no Railway Volume or DATABASE_URL is required.
-        path = Path(os.getenv("GATEWAY_RUNTIME_DIR", "/app/runtime"))
+        path = Path(os.getenv("GATEWAY_RUNTIME_DIR", "/app/runtime" if Path("/app").exists() else "runtime"))
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -55,15 +68,41 @@ class Settings(BaseSettings):
         return self.data_dir / "gateway.db"
 
     @property
+    def effective_database_url(self) -> str:
+        raw = (self.database_url or "").strip()
+        if not raw:
+            return f"sqlite+aiosqlite:///{self.database_path}"
+        if raw.startswith("postgres://"):
+            raw = "postgresql://" + raw[len("postgres://"):]
+        if raw.startswith("postgresql://"):
+            raw = "postgresql+asyncpg://" + raw[len("postgresql://"):]
+        return raw
+
+    @property
     def normalized_database_url(self) -> str:
-        return f"sqlite+aiosqlite:///{self.database_path}"
+        return self.effective_database_url
+
+    @property
+    def is_postgres(self) -> bool:
+        return self.effective_database_url.startswith("postgresql+asyncpg://")
 
     @property
     def base_url(self) -> str:
+        if self.explicit_base_url:
+            return self.explicit_base_url
         railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
         if railway_domain:
             return f"https://{railway_domain}"
         return f"http://localhost:{self.port}"
 
+    @property
+    def effective_portal_secret(self) -> str:
+        return self.portal_secret or self.bot_token
 
-settings = Settings()
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()

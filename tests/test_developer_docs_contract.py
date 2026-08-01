@@ -18,15 +18,17 @@ def test_docs_cover_fee_modes_and_invoice_limits():
 
 def test_docs_cover_callback_schedule_rate_limit_sandbox_and_errors():
     text = DOCS.read_text(encoding="utf-8")
-    assert "۲ ثانیه پس از پایان تلاش اول" in text
-    assert "۶ ثانیه پس از پایان تلاش دوم" in text
-    assert "Timeout هر تلاش ۱۲ ثانیه" in text
+    assert "۳۰ ثانیه پس از شکست تلاش اول" in text
+    assert "۵ دقیقه پس از شکست تلاش دوم" in text
+    assert "Timeout هر تلاش ۱۰ ثانیه" in text
     assert "حداکثر ۱۲۰ درخواست در دقیقه" in text
     assert "حداکثر ۳۰ درخواست در دقیقه" in text
     assert "حداکثر ۳۰۰ درخواست در دقیقه" in text
     assert "X-RateLimit-Remaining" in text
     assert "Retry-After" in text
-    assert "محیط Sandbox مستقل وجود ندارد" in text
+    assert "محیط Sandbox واقعی" in text
+    assert "/api/v1/sandbox/invoices" in text
+    assert "Idempotency-Replayed" in text
     assert '"success": false' in text
     assert '"request_id": "req_' in text
     assert '"code": "SMS_TEMPLATE_NOT_RESOLVED"' in text

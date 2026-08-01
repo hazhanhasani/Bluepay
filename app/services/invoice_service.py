@@ -3,13 +3,14 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.models import AmountReservation, BankCard, Invoice, Merchant, WalletLedger
+from app.services.callback_outbox_service import enqueue_live_paid_callback
 
 VALID_FEE_MODES = {"customer", "split", "merchant"}
 API_FEE_MODES = VALID_FEE_MODES | {"default"}
@@ -94,10 +95,14 @@ async def create_invoice(
     fee_mode: str | None = None,
     card_id: int | None = None,
     callback_url: str | None = None,
+    return_url: str | None = None,
     callback_secret: str | None = None,
     ttl_minutes: int | None = None,
     store_id: int | None = None,
     api_key_id: int | None = None,
+    idempotency_key: str | None = None,
+    risk_score: int = 0,
+    risk_status: str = "approved",
 ) -> Invoice:
     if base_amount_rial < 10_000:
         raise ValueError("مبلغ فاکتور باید حداقل ۱٬۰۰۰ تومان باشد")
@@ -127,6 +132,21 @@ async def create_invoice(
         expires_at=expires_at,
     )
 
+    if card.daily_limit_rial:
+        start_day = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        card_volume_today = int(
+            await session.scalar(
+                select(func.coalesce(func.sum(Invoice.payable_amount_rial), 0)).where(
+                    Invoice.card_id == card.id,
+                    Invoice.created_at >= start_day,
+                    Invoice.status.in_(["pending", "paid"]),
+                )
+            )
+            or 0
+        )
+        if card_volume_today + payable_amount_rial > card.daily_limit_rial:
+            raise ValueError("سقف مبلغ روزانه کارت مقصد تکمیل شده است؛ کارت دیگری را انتخاب کنید")
+
     invoice = Invoice(
         token=token,
         merchant_id=locked.id,
@@ -134,12 +154,16 @@ async def create_invoice(
         order_id=order_id[:120],
         client_order_id=client_order_id[:120] if client_order_id else None,
         description=description,
+        idempotency_key=idempotency_key[:180] if idempotency_key else None,
         base_amount_rial=base_amount_rial,
         fee_amount_rial=fee,
         customer_fee_rial=customer_fee,
         unique_amount_rial=unique_amount_rial,
         payable_amount_rial=payable_amount_rial,
         fee_mode=fee_mode,
+        environment="live",
+        risk_score=max(0, min(100, risk_score)),
+        risk_status=risk_status,
         status="pending",
         expires_at=expires_at,
         # Store invoices use only the callback configured for that store (or
@@ -147,6 +171,7 @@ async def create_invoice(
         # or the old merchant-wide callback. Legacy/manual invoices keep the
         # merchant-level fallback for backward compatibility.
         callback_url=(callback_url if store_id is not None else callback_url or locked.callback_url),
+        return_url=return_url,
         callback_secret=(callback_secret if store_id is not None else callback_secret or locked.callback_secret),
         store_id=store_id,
         api_key_id=api_key_id,
@@ -154,6 +179,8 @@ async def create_invoice(
     session.add(invoice)
     await session.flush()
     if fee > 0:
+        balance_before = locked.wallet_balance_rial
+        reserved_before = locked.reserved_balance_rial
         locked.reserved_balance_rial += fee
         session.add(
             WalletLedger(
@@ -161,7 +188,12 @@ async def create_invoice(
                 invoice_id=invoice.id,
                 entry_type="fee_reserved",
                 amount_rial=-fee,
+                balance_before_rial=balance_before,
                 balance_after_rial=locked.wallet_balance_rial,
+                reserved_before_rial=reserved_before,
+                reserved_after_rial=locked.reserved_balance_rial,
+                reference_type="invoice",
+                reference_id=str(invoice.id),
                 description=f"رزرو کارمزد فاکتور {invoice.order_id}",
                 idempotency_key=f"reserve:{invoice.id}",
             )
@@ -246,6 +278,8 @@ async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, s
     if not merchant:
         return False
     fee = max(0, invoice.fee_amount_rial)
+    balance_before = merchant.wallet_balance_rial
+    reserved_before = merchant.reserved_balance_rial
     if fee > 0:
         merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - fee)
     invoice.status = status
@@ -259,7 +293,12 @@ async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, s
                 invoice_id=invoice.id,
                 entry_type="fee_released",
                 amount_rial=fee,
+                balance_before_rial=balance_before,
                 balance_after_rial=merchant.wallet_balance_rial,
+                reserved_before_rial=reserved_before,
+                reserved_after_rial=merchant.reserved_balance_rial,
+                reference_type="invoice",
+                reference_id=str(invoice.id),
                 description=f"آزادسازی کارمزد فاکتور {invoice.order_id}",
                 idempotency_key=f"release:{invoice.id}",
             )
@@ -297,6 +336,8 @@ async def confirm_invoice_paid(
             return None
 
     fee = max(0, invoice.fee_amount_rial)
+    merchant_balance_before = merchant.wallet_balance_rial
+    merchant_reserved_before = merchant.reserved_balance_rial
     if fee > 0:
         merchant.reserved_balance_rial = max(0, merchant.reserved_balance_rial - fee)
         merchant.wallet_balance_rial -= fee
@@ -321,7 +362,12 @@ async def confirm_invoice_paid(
                 invoice_id=invoice.id,
                 entry_type="verification_fee",
                 amount_rial=-fee,
+                balance_before_rial=merchant_balance_before,
                 balance_after_rial=merchant.wallet_balance_rial,
+                reserved_before_rial=merchant_reserved_before,
+                reserved_after_rial=merchant.reserved_balance_rial,
+                reference_type="invoice",
+                reference_id=str(invoice.id),
                 description=f"کسر کارمزد تأیید فاکتور {invoice.order_id}",
                 idempotency_key=f"paid-fee:{invoice.id}",
             )
@@ -329,6 +375,8 @@ async def confirm_invoice_paid(
 
     if wallet_target is not None:
         credited_rial = invoice.payable_amount_rial
+        target_balance_before = wallet_target.wallet_balance_rial
+        target_reserved_before = wallet_target.reserved_balance_rial
         wallet_target.wallet_balance_rial += credited_rial
         session.add(
             WalletLedger(
@@ -336,12 +384,20 @@ async def confirm_invoice_paid(
                 invoice_id=invoice.id,
                 entry_type="wallet_topup",
                 amount_rial=credited_rial,
+                balance_before_rial=target_balance_before,
                 balance_after_rial=wallet_target.wallet_balance_rial,
+                reserved_before_rial=target_reserved_before,
+                reserved_after_rial=wallet_target.reserved_balance_rial,
+                reference_type="invoice",
+                reference_id=str(invoice.id),
                 description=f"شارژ آنلاین کیف پول با فاکتور {invoice.order_id}",
                 idempotency_key=f"wallet-topup:{invoice.id}",
             )
         )
 
+    await session.flush()
+    if invoice.purpose == "payment":
+        await enqueue_live_paid_callback(session, invoice)
     await session.flush()
     return invoice
 

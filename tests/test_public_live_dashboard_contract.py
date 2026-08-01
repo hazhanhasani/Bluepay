@@ -6,7 +6,7 @@ HOME = ROOT / "app" / "templates" / "home.html"
 ROUTES = ROOT / "app" / "api" / "routes.py"
 SERVICE = ROOT / "app" / "services" / "public_dashboard_service.py"
 MODELS = ROOT / "app" / "models" / "entities.py"
-CALLBACKS = ROOT / "app" / "services" / "callback_service.py"
+CALLBACKS = ROOT / "app" / "services" / "callback_outbox_service.py"
 
 
 def test_landing_reads_live_data_and_refreshes_without_cache():
@@ -45,4 +45,7 @@ def test_callback_delivery_state_is_persisted_for_live_display():
     assert "callback_status" in models
     assert "callback_last_result" in models
     assert "callback_attempted_at" in models
-    assert '_record_invoice_callback(invoice.id, "delivered" if success else "failed", result)' in callbacks
+    assert "CallbackEvent" in callbacks
+    assert "CallbackAttempt" in callbacks
+    assert 'event.status = "delivered"' in callbacks
+    assert 'callback_status="delivered" if success' in callbacks

@@ -42,6 +42,10 @@ class CreateInvoiceRequest(BaseModel):
         default=None,
         description="Callback اختصاصی همین فاکتور؛ باید HTTPS عمومی باشد",
     )
+    return_url: HttpUrl | None = Field(
+        default=None,
+        description="نشانی بازگشت کاربر پس از مشاهده رسید موفق؛ باید HTTPS عمومی باشد",
+    )
     ttl_minutes: int | None = Field(
         default=None,
         ge=5,
@@ -60,3 +64,27 @@ class SmsWebhookRequest(BaseModel):
         max_length=60,
         description="کد بانک اختیاری؛ ارسال آن دقت تشخیص پیامک را افزایش می‌دهد",
     )
+
+
+class SandboxCreateInvoiceRequest(BaseModel):
+    amount_toman: int = Field(ge=1_000, le=500_000_000, examples=[200_000])
+    order_id: str = Field(min_length=1, max_length=120, examples=["TEST-ORDER-1001"])
+    description: str | None = Field(default=None, max_length=500)
+    ttl_minutes: int = Field(default=30, ge=5, le=1440)
+
+
+class SandboxSimulationRequest(BaseModel):
+    result: Literal["paid", "failed", "expired"] = Field(
+        description="نتیجه شبیه‌سازی؛ paid رویداد Callback آزمایشی ایجاد می‌کند"
+    )
+    reference_number: str | None = Field(default=None, max_length=120)
+
+
+class StoreSecurityRequest(BaseModel):
+    allowed_ips: list[str] = Field(default_factory=list, max_length=100)
+    invoice_rate_limit_per_minute: int | None = Field(default=None, ge=1, le=300)
+    daily_amount_limit_toman: int | None = Field(default=None, ge=1_000, le=5_000_000_000)
+
+
+class SmsDevicePolicyRequest(BaseModel):
+    devices: list[str] = Field(default_factory=list, max_length=50)

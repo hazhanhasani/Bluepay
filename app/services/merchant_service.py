@@ -48,13 +48,20 @@ async def credit_wallet(
 ) -> None:
     if amount_rial <= 0:
         raise ValueError("مبلغ شارژ باید بیشتر از صفر باشد")
+    balance_before = merchant.wallet_balance_rial
+    reserved_before = merchant.reserved_balance_rial
     merchant.wallet_balance_rial += amount_rial
     session.add(
         WalletLedger(
             merchant_id=merchant.id,
             entry_type="deposit",
             amount_rial=amount_rial,
+            balance_before_rial=balance_before,
             balance_after_rial=merchant.wallet_balance_rial,
+            reserved_before_rial=reserved_before,
+            reserved_after_rial=merchant.reserved_balance_rial,
+            reference_type="manual_credit",
+            reference_id=idempotency_key,
             description=description,
             idempotency_key=idempotency_key,
         )

@@ -20,7 +20,7 @@ def test_store_policy_allows_only_one_api_key():
 
 def test_upgrade_revokes_extra_active_keys_without_deleting_history():
     text = MIGRATIONS.read_text(encoding="utf-8")
-    assert "Releases before 0.5.6 allowed multiple active API keys" in text
+    assert "enforce one active live key per store" in text
     assert "UPDATE store_api_keys SET is_active = 0" in text
     assert "DELETE FROM store_api_keys" not in text
     assert "uq_store_one_active_api_key" in text
@@ -31,8 +31,8 @@ def test_store_callback_is_separate_and_has_no_merchant_fallback():
     route_text = ROUTES.read_text(encoding="utf-8")
     assert "callback_url if store_id is not None" in invoice_text
     assert "callback_secret if store_id is not None" in invoice_text
-    assert "context.store.callback_url if context.store else merchant.callback_url" in route_text
-    assert "merchant.callback_secret if not context.store else None" in route_text
+    assert "store.callback_url if store else merchant.callback_url" in route_text
+    assert "merchant.callback_secret if not store else None" in route_text
 
 
 def test_bot_and_docs_describe_one_key_per_store():

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101f">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>پنل پذیرنده | {{ merchant.name }}</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+</head>
+<body class="portal-body">
+<header class="portal-header">
+  <div class="portal-wrap portal-header-inner">
+    <div class="brand"><span class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></span><span><b>پنل پذیرنده</b><small>{{ merchant.name }}</small></span></div>
+    <span class="badge success">حساب فعال</span>
+  </div>
+</header>
+<main class="portal-wrap portal-main">
+  <section class="portal-hero">
+    <div><span>شناسه پذیرنده BP-{{ "%06d"|format(merchant.id) }}</span><h1>گزارش یکپارچه پرداخت و اتصال‌ها</h1><p>اطلاعات این صفحه مستقیماً از دیتابیس بلوپی خوانده می‌شود. عملیات حساس فقط از ربات رسمی انجام می‌شود.</p></div>
+    <div class="portal-wallet"><small>اعتبار قابل استفاده</small><strong>{{ "{:,}".format(toman(merchant.available_balance_rial)) }}</strong><span>تومان</span></div>
+  </section>
+
+  <section class="portal-stats">
+    <article><span>کل فاکتورها</span><strong>{{ dashboard.invoice_count }}</strong></article>
+    <article><span>پرداخت موفق</span><strong>{{ dashboard.paid_count }}</strong></article>
+    <article><span>پرداخت ۲۴ ساعت</span><strong>{{ dashboard.paid_24h }}</strong></article>
+    <article><span>حجم پرداخت موفق</span><strong>{{ "{:,}".format(toman(dashboard.paid_volume_rial)) }}</strong><small>تومان</small></article>
+  </section>
+
+  <section class="portal-grid">
+    <article class="portal-card portal-wide">
+      <div class="portal-card-head"><div><span>تراکنش‌ها</span><h2>آخرین فاکتورها</h2></div><b>{{ dashboard.invoices|length }} رکورد</b></div>
+      <div class="portal-table">
+        <div class="portal-row portal-row-head"><span>سفارش</span><span>مبلغ</span><span>وضعیت</span><span>Callback</span></div>
+        {% for item in dashboard.invoices %}
+        <div class="portal-row"><code>{{ item.client_order_id or item.order_id }}</code><span>{{ "{:,}".format(toman(item.payable_amount_rial)) }} ت</span><span class="status-{{ item.status }}">{{ item.status }}</span><span>{{ item.callback_status }}</span></div>
+        {% else %}<div class="portal-empty">هنوز فاکتوری ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card portal-wide" id="stores">
+      <div class="portal-card-head"><div><span>اتصال‌ها و کنترل ریسک</span><h2>مدیریت فروشگاه‌ها</h2></div></div>
+      <div class="portal-store-grid">
+        {% for item in dashboard.stores %}
+        <form class="portal-store-form" method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/stores/{{ item.id }}/settings">
+          <div class="portal-store-title"><div><b>{{ item.name }}</b><span>{{ item.code }} · {{ 'فعال' if item.is_active else 'غیرفعال' }}</span></div><small>Secret و API Key فقط در ربات مدیریت می‌شوند</small></div>
+          <label>Callback اختصاصی<input name="callback_url" type="url" value="{{ item.callback_url or '' }}" placeholder="https://example.com/webhook"></label>
+          <label>IPهای مجاز، جداشده با ویرگول<textarea name="allowed_ips" placeholder="203.0.113.10, 198.51.100.0/24">{{ item.allowed_ips or '' }}</textarea></label>
+          <div class="portal-form-row"><label>فاکتور در دقیقه<input name="invoice_rate_limit_per_minute" type="number" min="1" max="300" value="{{ item.invoice_rate_limit_per_minute or 30 }}"></label><label>سقف روزانه، تومان<input name="daily_amount_limit_toman" type="number" min="1000" max="5000000000" value="{{ (item.daily_amount_limit_rial // 10) if item.daily_amount_limit_rial else 500000000 }}"></label></div>
+          <button type="submit">ذخیره تنظیمات فروشگاه</button>
+        </form>
+        {% else %}<div class="portal-empty">فروشگاهی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card">
+      <div class="portal-card-head"><div><span>حساب‌ها</span><h2>کارت‌های مقصد</h2></div></div>
+      <div class="portal-list">
+        {% for item in dashboard.cards %}<div><b>•••• {{ item.card_last4 }}</b><span>{{ item.bank_code }}</span><small>{{ 'فعال' if item.is_active else 'غیرفعال' }}{% if item.is_default %} · پیش‌فرض{% endif %}</small></div>{% else %}<div class="portal-empty">کارتی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card portal-wide">
+      <div class="portal-card-head"><div><span>دفتر کل</span><h2>گردش کیف پول</h2></div><b>غیرقابل‌ویرایش</b></div>
+      <div class="portal-table">
+        <div class="portal-row portal-row-head"><span>نوع</span><span>تغییر</span><span>مانده</span><span>مرجع</span></div>
+        {% for item in dashboard.ledger %}<div class="portal-row"><span>{{ item.entry_type }}</span><span>{{ "{:,}".format(toman(item.amount_rial)) }} ت</span><span>{{ "{:,}".format(toman(item.balance_after_rial)) }} ت</span><code>{{ item.reference_id or '-' }}</code></div>{% else %}<div class="portal-empty">گردشی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card" id="callbacks">
+      <div class="portal-card-head"><div><span>تحویل رویداد</span><h2>Callbackها</h2></div></div>
+      <div class="portal-list">
+        {% for item in dashboard.callbacks %}<div><b>{{ item.event_type }}</b><span>{{ item.status }} · تلاش {{ item.attempt_count }}/{{ item.max_attempts }}</span><small>{{ item.last_result or 'در صف ارسال' }}</small>{% if item.status == 'failed' %}<form method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/callbacks/{{ item.id }}/retry"><button type="submit" class="portal-mini-button">ارسال مجدد</button></form>{% endif %}</div>{% else %}<div class="portal-empty">رویدادی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card" id="reconciliation">
+      <div class="portal-card-head"><div><span>مغایرت</span><h2>نیازمند بررسی</h2></div><b>{{ dashboard.cases|length }}</b></div>
+      <div class="portal-list">
+        {% for item in dashboard.cases %}<div><b>{{ item.case_type }}</b><span>{{ item.severity }}</span><small>{{ item.detail }}</small><form method="post" action="/portal/{{ merchant.id }}/{{ request.path_params.token }}/reconciliation/{{ item.id }}/resolve"><button type="submit" class="portal-mini-button">بستن مورد</button></form></div>{% else %}<div class="portal-empty">مغایرت بازی وجود ندارد.</div>{% endfor %}
+      </div>
+    </article>
+
+    <article class="portal-card portal-wide">
+      <div class="portal-card-head"><div><span>امنیت و پیگیری</span><h2>Audit Log</h2></div></div>
+      <div class="portal-table">
+        <div class="portal-row portal-row-head"><span>عملیات</span><span>عامل</span><span>موجودیت</span><span>Request ID</span></div>
+        {% for item in dashboard.audits %}<div class="portal-row"><span>{{ item.action }}</span><span>{{ item.actor_type }}</span><span>{{ item.entity_type or '-' }} #{{ item.entity_id or '-' }}</span><code>{{ item.request_id or '-' }}</code></div>{% else %}<div class="portal-empty">رویداد ممیزی ثبت نشده است.</div>{% endfor %}
+      </div>
+    </article>
+  </section>
+  <div class="portal-note">این لینک محرمانه است. آن را در اختیار دیگران قرار ندهید. برای بازنشانی دسترسی، Secret حساب را از ربات تغییر دهید.</div>
+</main>
+</body>
+</html>

@@ -76,6 +76,7 @@ from app.services.invoice_service import (
     release_invoice_reservation,
 )
 from app.services.merchant_service import credit_wallet, get_or_create_merchant
+from app.services.portal_service import merchant_portal_url
 from app.services.settings_service import get_setting
 from app.services.store_service import (
     create_store,
@@ -1093,7 +1094,7 @@ async def connection_panel(callback: CallbackQuery):
         subtitle="مدیریت چند فروشگاه با API و Callback مستقل",
         footer="وبهوک پیامک در سطح پذیرنده مشترک است؛ API و Callback برای هر فروشگاه جدا مدیریت می‌شوند.",
     )
-    await callback.message.edit_text(text, reply_markup=connection_menu(docs_url))
+    await callback.message.edit_text(text, reply_markup=connection_menu(docs_url, merchant_portal_url(merchant)))
     await callback.answer()
 
 
@@ -1667,7 +1668,7 @@ async def callback_panel(callback: CallbackQuery):
             "<code>X-Gateway-Timestamp</code>",
         ],
         subtitle="اعلام آنی پرداخت موفق به سایت یا ربات شما",
-        footer="سرور مقصد باید HTTPS عمومی داشته باشد و حداکثر ظرف ۱۲ ثانیه پاسخ 2xx برگرداند.",
+        footer="سرور مقصد باید HTTPS عمومی داشته باشد و حداکثر ظرف ۱۰ ثانیه پاسخ 2xx برگرداند.",
     )
     await callback.message.edit_text(text, reply_markup=callback_menu(docs_url, bool(merchant.callback_url)))
     await callback.answer()
@@ -1731,7 +1732,7 @@ async def callback_remove(callback: CallbackQuery):
             "نشانی Callback حذف شد",
             "تا زمان ثبت نشانی جدید، نتیجه پرداخت را از طریق API استعلام کنید.",
         ),
-        reply_markup=connection_menu(merchant_docs_url(merchant)),
+        reply_markup=connection_menu(merchant_docs_url(merchant), merchant_portal_url(merchant)),
     )
     await callback.answer("Callback حذف شد.")
 

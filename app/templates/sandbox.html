@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07101f">
+  <title>Sandbox بلوپی</title>
+  <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="shell compact">
+  <div class="brandbar">
+    <div class="brand"><div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></div><div class="brand-copy"><strong>بلوپی Sandbox</strong><span>محیط آزمایش کاملاً غیرمالی</span></div></div>
+    <span class="badge pending">آزمایشی</span>
+  </div>
+  <section class="card receipt sandbox-card">
+    <div class="sandbox-icon">🧪</div>
+    <span class="badge">بدون انتقال وجه واقعی</span>
+    <h1>{{ invoice.description or 'فاکتور آزمایشی' }}</h1>
+    <p>این صفحه فقط برای آزمایش اتصال API و Callback است. هیچ کارت بانکی یا پیامک واقعی درگیر نمی‌شود.</p>
+    <div class="amount">{{ "{:,}".format(toman(invoice.amount_rial)) }} <small>تومان</small></div>
+    <div class="summary">
+      <div><span>شناسه سفارش</span><b>{{ invoice.client_order_id }}</b></div>
+      <div><span>وضعیت</span><b>{{ invoice.status }}</b></div>
+      <div><span>شناسه پرداخت</span><b>{{ invoice.token }}</b></div>
+      <div><span>محیط</span><b>Sandbox</b></div>
+    </div>
+    <div class="security-strip">برای تعیین نتیجه، Endpoint شبیه‌سازی را با API Key همان فروشگاه فراخوانی کنید.</div>
+  </section>
+</main>
+</body>
+</html>

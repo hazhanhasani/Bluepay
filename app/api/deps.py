@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import sha256_text
 from app.db.session import get_session
 from app.models import Merchant, Store, StoreApiKey
+from app.services.risk_service import client_ip_allowed
 
 
 @dataclass(slots=True)
@@ -17,9 +19,18 @@ class ApiContext:
     store: Store | None = None
     api_key: StoreApiKey | None = None
     legacy: bool = False
+    client_ip: str | None = None
+
+
+def _client_ip(request: Request) -> str | None:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    return request.client.host[:64] if request.client else None
 
 
 async def api_context(
+    request: Request,
     x_api_key: str = Header(alias="X-API-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> ApiContext:
@@ -38,16 +49,24 @@ async def api_context(
             )
         )
     ).first()
+    client_ip = _client_ip(request)
     if row:
         key, store, merchant = row
-        return ApiContext(merchant=merchant, store=store, api_key=key, legacy=bool(key.is_legacy))
+        now = datetime.now(timezone.utc)
+        if key.expires_at:
+            expires_at = key.expires_at if key.expires_at.tzinfo else key.expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= now:
+                raise HTTPException(status_code=401, detail={"code": "API_KEY_EXPIRED", "message": "API key منقضی شده است"})
+        if not client_ip_allowed(store, client_ip):
+            raise HTTPException(status_code=403, detail={"code": "IP_NOT_ALLOWED", "message": "IP درخواست در فهرست مجاز فروشگاه نیست"})
+        key.last_used_at = now
+        key.last_used_ip = client_ip
+        await session.flush()
+        return ApiContext(merchant=merchant, store=store, api_key=key, legacy=bool(key.is_legacy), client_ip=client_ip)
 
-    # Compatibility for installations whose migration has not yet copied the old key.
-    merchant = await session.scalar(
-        select(Merchant).where(Merchant.api_key_hash == key_hash, Merchant.is_active.is_(True))
-    )
+    merchant = await session.scalar(select(Merchant).where(Merchant.api_key_hash == key_hash, Merchant.is_active.is_(True)))
     if merchant:
-        return ApiContext(merchant=merchant, legacy=True)
+        return ApiContext(merchant=merchant, legacy=True, client_ip=client_ip)
     raise HTTPException(status_code=401, detail={"code": "INVALID_API_KEY", "message": "API key نامعتبر یا غیرفعال است"})
 
 

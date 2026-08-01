@@ -84,7 +84,20 @@ class GitHubPublisher:
             response = await client.request(method, url, headers=self.headers, **kwargs)
         if response.status_code >= 400:
             detail = response.text[:600]
-            raise RuntimeError(f"GitHub API {response.status_code}: {detail}")
+            accepted = response.headers.get("X-Accepted-GitHub-Permissions", "").strip()
+            granted = response.headers.get("X-OAuth-Scopes", "").strip()
+            extra = []
+            if accepted:
+                extra.append(f"مجوز لازم: {accepted}")
+            if granted:
+                extra.append(f"مجوز فعلی: {granted}")
+            if response.status_code == 403 and "Resource not accessible by personal access token" in detail:
+                extra.append(
+                    "توکن باید به مخزن انتخاب‌شده دسترسی داشته باشد و Repository permission «Contents: Read and write» فعال باشد. "
+                    "برای انتشار فایل‌های .github/workflows، مجوز «Workflows: Read and write» نیز لازم است."
+                )
+            suffix = ("\n" + "\n".join(extra)) if extra else ""
+            raise RuntimeError(f"GitHub API {response.status_code}: {detail}{suffix}")
         return response.json() if response.content else {}
 
     async def publish(self, package: ReleasePackage) -> str:

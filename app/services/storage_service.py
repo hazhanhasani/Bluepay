@@ -30,7 +30,7 @@ class GitHubDatabaseStorage:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self.disabled = os.getenv("GATEWAY_DISABLE_REMOTE_BACKUP", "0") == "1"
+        self.disabled = os.getenv("GATEWAY_DISABLE_REMOTE_BACKUP", "0") == "1" or settings.is_postgres
         self.dirty = False
         self.last_error: str | None = None
         self.last_backup_at: str | None = None
@@ -158,7 +158,7 @@ class GitHubDatabaseStorage:
                     {
                         "format": 2,
                         "encrypted": True,
-                        "database": "sqlite",
+                        "database": "postgresql" if settings.is_postgres else "sqlite",
                         "sha256": plain_sha256,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     },

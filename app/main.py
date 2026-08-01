@@ -29,6 +29,8 @@ from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.models import Invoice
 from app.services.appearance_service import load_appearance_settings
+from app.services.callback_outbox_service import process_callback_outbox_batch, recover_stale_callback_locks
+from app.services.idempotency_service import cleanup_expired_idempotency
 from app.services.invoice_service import release_invoice_reservation
 from app.services.migration_service import run_runtime_migrations
 from app.services.settings_service import ensure_runtime_settings
@@ -63,6 +65,34 @@ async def expiration_worker() -> None:
         except Exception as exc:
             print(f"expiration_worker_error={type(exc).__name__}: {exc}")
         await asyncio.sleep(30)
+
+
+
+
+async def callback_outbox_worker() -> None:
+    await recover_stale_callback_locks()
+    while True:
+        try:
+            processed = await process_callback_outbox_batch(settings.callback_worker_batch_size)
+            await asyncio.sleep(0.2 if processed else settings.callback_worker_interval_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"callback_outbox_worker_error={type(exc).__name__}: {exc}")
+            await asyncio.sleep(5)
+
+
+async def housekeeping_worker() -> None:
+    while True:
+        try:
+            async with SessionLocal() as session:
+                await cleanup_expired_idempotency(session)
+                await session.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"housekeeping_worker_error={type(exc).__name__}: {exc}")
+        await asyncio.sleep(3600)
 
 
 async def telegram_worker() -> None:
@@ -102,9 +132,13 @@ async def lifespan(app: FastAPI):
 
     bot_task = asyncio.create_task(telegram_worker(), name="telegram-polling")
     expiry_task = asyncio.create_task(expiration_worker(), name="invoice-expiration")
+    callback_task = asyncio.create_task(callback_outbox_worker(), name="callback-outbox")
+    housekeeping_task = asyncio.create_task(housekeeping_worker(), name="housekeeping")
     backup_task = asyncio.create_task(storage.retry_worker(), name="database-backup-retry")
     app.state.bot_task = bot_task
     app.state.expiry_task = expiry_task
+    app.state.callback_task = callback_task
+    app.state.housekeeping_task = housekeeping_task
     app.state.backup_task = backup_task
     yield
 
@@ -112,12 +146,20 @@ async def lifespan(app: FastAPI):
     if storage.dirty:
         await storage.backup_now()
 
-    for task in (bot_task, expiry_task, backup_task):
+    for task in (bot_task, expiry_task, callback_task, housekeeping_task, backup_task):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
     await bot.session.close()
     await engine.dispose()
+
+
+if settings.sentry_dsn:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, traces_sample_rate=0.1)
+    except Exception as exc:
+        print(f"sentry_init_error={type(exc).__name__}: {exc}")
 
 
 app = FastAPI(title="Direct Payment Gateway Bot", version=APP_VERSION, lifespan=lifespan, docs_url="/openapi", redoc_url=None)

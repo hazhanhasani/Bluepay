@@ -82,5 +82,5 @@ async def ensure_runtime_settings(session: AsyncSession) -> dict[str, str]:
         await set_setting(session, "access_required_channels", "[]")
     await set_setting(session, "github_repository", settings.github_repository)
     await set_setting(session, "github_branch", settings.github_branch)
-    await set_setting(session, "database_mode", "sqlite-encrypted-github-snapshot")
+    await set_setting(session, "database_mode", "postgresql" if settings.is_postgres else "sqlite-encrypted-github-snapshot")
     return result

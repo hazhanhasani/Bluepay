@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07101f">
   <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.merchant.name }}{% endif %}</title>
   <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=0.6.3">
+  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
 </head>
 <body class="payment-body">
 <main class="shell">
@@ -38,6 +38,7 @@
     <div class="amount-label">مبلغ دقیق قابل پرداخت</div>
     <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
     <div class="amount-hint">این مبلغ را بدون کم‌وزیاد واریز کنید</div>
+    <button class="secondary-button amount-copy-button" onclick="copyValue('{{ toman(invoice.payable_amount_rial) }}', this)">کپی مبلغ دقیق</button>
     <div class="summary">
       <div><span>{% if invoice.purpose == 'wallet_topup' %}اعتبار انتخابی{% else %}مبلغ سفارش{% endif %}</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
       {% if invoice.purpose != 'wallet_topup' %}<div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>{% endif %}
@@ -66,6 +67,7 @@
       {% if invoice.purpose == 'wallet_topup' %}<li>تمام مبلغ دقیق پرداخت‌شده، شامل کد تطبیق، به کیف پول شما افزوده می‌شود.</li>{% endif %}
       <li>در صورت پایان زمان، از پذیرنده لینک جدید دریافت کنید.</li>
     </ul>
+    <div id="networkState" class="network-state online">اتصال برقرار است</div>
     <div class="loader-line"><span></span> در حال پایش وضعیت تراکنش</div>
     <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود</div>
   </section>
@@ -78,12 +80,25 @@ async function copyValue(value, button){
     setTimeout(()=>button.textContent=old,1600);
   }catch(e){ button.textContent='کپی ناموفق بود'; }
 }
+let statusFailures=0;
+function renderNetworkState(online, text){
+  const el=document.getElementById('networkState');
+  if(!el) return;
+  el.className='network-state '+(online?'online':'offline');
+  el.textContent=text || (online?'اتصال برقرار است':'اتصال اینترنت قطع است؛ تلاش مجدد خودکار انجام می‌شود');
+}
 async function checkStatus(){
+  if(!navigator.onLine){ renderNetworkState(false); return; }
   try{
-    const response=await fetch('/api/payment/{{ invoice.token }}/status',{cache:'no-store'});
+    const response=await fetch('/api/payment/{{ invoice.token }}/status',{cache:'no-store',headers:{'X-Requested-With':'BluePay-Payment'}});
+    if(!response.ok) throw new Error('status_'+response.status);
     const data=await response.json();
+    statusFailures=0; renderNetworkState(true,'اتصال برقرار است؛ وضعیت پرداخت در حال پایش است');
     if(['paid','expired','cancelled'].includes(data.status)) location.reload();
-  }catch(e){}
+  }catch(e){
+    statusFailures++;
+    renderNetworkState(false, statusFailures>2?'اتصال ناپایدار است؛ صفحه را نبندید':'در حال اتصال مجدد…');
+  }
 }
 const expiry=new Date('{{ invoice.expires_at.isoformat() }}');
 function tick(){
@@ -92,7 +107,9 @@ function tick(){
   document.getElementById('countdown').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   if(diff===0) setTimeout(()=>location.reload(),1000);
 }
-tick(); setInterval(tick,1000); setInterval(checkStatus,3000);
+window.addEventListener('online',()=>{renderNetworkState(true,'اتصال دوباره برقرار شد');checkStatus();});
+window.addEventListener('offline',()=>renderNetworkState(false));
+tick(); checkStatus(); setInterval(tick,1000); setInterval(checkStatus,3000);
 </script>
 </body>
 </html>

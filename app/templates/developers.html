@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>مستندات توسعه‌دهندگان بلوپی</title>
   <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=0.6.3">
+  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
 </head>
 <body class="docs-body">
   <header class="docs-topbar">
@@ -37,6 +37,7 @@
       <a href="#callback">Callback پرداخت</a>
       <a href="#sms-webhook">وبهوک پیامک</a>
       <a href="#banks">بانک‌های پشتیبانی‌شده</a>
+      <a href="#sdks">SDKهای رسمی</a>
       <a href="#errors">خطاها و وضعیت‌ها</a>
     </aside>
 
@@ -81,7 +82,7 @@
         <div class="section-title"><div class="icon-box">🔑</div><div><h2>احراز هویت API</h2><p>کلید در هدر همه درخواست‌های خصوصی ارسال می‌شود</p></div></div>
         <div class="endpoint"><span class="method post">HEADER</span><code>X-API-Key: gw_your_private_key</code></div>
         <div class="notice">هر فروشگاه یک کلید API مشخص دارد. کلید فروشگاه دیگر امکان استعلام یا لغو فاکتورهای این فروشگاه را ندارد. کلید را فقط در Backend نگه دارید.</div>
-        <div class="notice warning">ساخت فروشگاه جدا فقط داده‌ها و دسترسی‌ها را تفکیک می‌کند و به‌معنای Sandbox نیست. تمام فاکتورهای ساخته‌شده در این نشانی، واقعی هستند.</div>
+        <div class="notice">برای تست بدون جابه‌جایی پول از مسیرهای مستقل <code>/api/v1/sandbox</code> استفاده کنید. همان API Key فروشگاه معتبر است، اما داده‌ها، فاکتورها و Callbackها با برچسب <code>sandbox</code> جدا ثبت می‌شوند.</div>
 
         <h3 id="fee-modes">مقادیر مجاز <code>fee_mode</code></h3>
         <p>این فیلد مشخص می‌کند چه مقدار از کارمزد تأیید به مبلغ پرداختی مشتری افزوده شود. کارمزد سرویس در زمان ساخت فاکتور از کیف پول پذیرنده رزرو و پس از پرداخت از همان کیف پول کسر می‌شود.</p>
@@ -95,6 +96,11 @@
         <div class="notice">اگر مبلغ کارمزد حساب روی صفر باشد، فاکتور بدون رزرو یا کسر کارمزد ساخته می‌شود. در پاسخ فاکتور، <code>fee_amount_rial</code> و <code>customer_fee_rial</code> برابر صفر خواهند بود.</div>
         <pre><code>payable_amount_rial = base_amount_rial + customer_fee_rial + unique_amount_rial</code><button onclick="copyPre(this)">کپی</button></pre>
 
+        <h3>Idempotency و جلوگیری از ساخت تکراری</h3>
+        <div class="endpoint"><span class="method post">HEADER</span><code>Idempotency-Key: order-1001-create</code></div>
+        <p>برای تمام درخواست‌های ساخت فاکتور Live و Sandbox یک کلید یکتا ارسال کنید. تکرار همان کلید با همان بدنه، پاسخ ذخیره‌شده را با هدر <code>Idempotency-Replayed: true</code> برمی‌گرداند؛ استفاده از همان کلید با بدنه متفاوت خطای <code>409</code> ایجاد می‌کند.</p>
+        <div class="notice">کلید باید بین ۸ تا ۱۸۰ نویسه باشد و حداقل ۲۴ ساعت نگه‌داری می‌شود. علاوه بر آن، <code>order_id</code> در محدوده هر فروشگاه یکتا باقی می‌ماند.</div>
+
         <h3 id="invoice-limits">محدوده فاکتور و پارامترهای درخواست</h3>
         <div class="status-table">
           <div><code>amount_toman</code><span>عدد صحیح؛ حداقل ۱٬۰۰۰ و حداکثر ۵۰۰٬۰۰۰٬۰۰۰ تومان.</span></div>
@@ -103,6 +109,7 @@
           <div><code>fee_mode</code><span>اختیاری؛ <code>merchant</code>، <code>customer</code>، <code>split</code> یا <code>default</code>. مقدار <code>free</code> پذیرفته نمی‌شود.</span></div>
           <div><code>card_id</code><span>اختیاری؛ باید شناسه یک کارت فعال متعلق به همان پذیرنده باشد.</span></div>
           <div><code>callback_url</code><span>اختیاری و مخصوص همان فاکتور؛ در صورت حذف، Callback اختصاصی فروشگاه استفاده می‌شود. Callback فروشگاه دیگری یا Callback عمومی حساب به ارث نمی‌رسد.</span></div>
+          <div><code>return_url</code><span>اختیاری؛ پس از پرداخت موفق، دکمه بازگشت به فروشگاه در رسید نمایش داده می‌شود.</span></div>
           <div><code>ttl_minutes</code><span>اختیاری؛ حداقل ۵ و حداکثر ۱٬۴۴۰ دقیقه. در صورت حذف، مقدار پیش‌فرض سامانه استفاده می‌شود.</span></div>
           <div><code>unique_amount_rial</code><span>سامانه به‌طور خودکار ۱ تا ۹۹۹ تومان کد تطبیق به مبلغ نهایی اضافه می‌کند.</span></div>
         </div>
@@ -112,6 +119,7 @@
         <div class="endpoint"><span class="method post">POST</span><code>{{ base_url }}/api/v1/invoices</code></div>
         <pre><code>curl -X POST "{{ base_url }}/api/v1/invoices" \
   -H "X-API-Key: gw_your_private_key" \
+  -H "Idempotency-Key: order-1001-create" \
   -H "Content-Type: application/json" \
   -d '{
     "amount_toman": 200000,
@@ -161,7 +169,7 @@ payload = {
 
 response = httpx.post(
     f"{BASE_URL}/api/v1/invoices",
-    headers={"X-API-Key": API_KEY},
+    headers={"X-API-Key": API_KEY, "Idempotency-Key": "order-1001-create"},
     json=payload,
     timeout=15,
 )
@@ -186,6 +194,7 @@ curl_setopt_array($ch, [
   CURLOPT_RETURNTRANSFER =&gt; true,
   CURLOPT_HTTPHEADER =&gt; [
     'X-API-Key: ' . $apiKey,
+    'Idempotency-Key: order-1001-create',
     'Content-Type: application/json'
   ],
   CURLOPT_POSTFIELDS =&gt; json_encode($data)
@@ -212,18 +221,27 @@ echo $invoice['payment_url'];</code><button onclick="copyPre(this)">کپی</butt
           <div><code>X-RateLimit-Scope</code><span>یکی از <code>ip</code>، <code>api_key</code> یا <code>invoice_create</code>.</span></div>
           <div><code>Retry-After</code><span>فقط در پاسخ ۴۲۹؛ تعداد ثانیه تا امکان تلاش مجدد.</span></div>
         </div>
-        <div class="notice warning">این Rate Limit در حافظه همان Process اجرا می‌شود؛ با Deploy یا Restart صفر می‌شود و در صورت اجرای چند Replica، سهمیه هر Replica جداست. برای سهمیه سراسری چندریپلیکا باید Redis یا Gateway توزیع‌شده اضافه شود.</div>
+        <div class="notice"><b>شمارنده‌ها در دیتابیس اصلی ذخیره می‌شوند.</b> بنابراین Restart و اجرای چند Replica سهمیه را صفر یا چندبرابر نمی‌کند. فقط هش API Key و هویت IP ذخیره می‌شود و پنجره‌های قدیمی خودکار پاک می‌شوند.</div>
       </section>
 
       <section class="card" id="sandbox">
-        <div class="section-title"><div class="icon-box">🧪</div><div><h2>محیط Sandbox</h2><p>تفکیک تست از پرداخت واقعی</p></div></div>
-        <div class="notice danger"><b>در نسخه {{ app_version }} محیط Sandbox مستقل وجود ندارد.</b> آدرس API، صفحه پرداخت، کارت مقصد و تطبیق پیامک همگی به محیط واقعی متصل‌اند.</div>
-        <p>ساخت «فروشگاه آزمایشی» یا «کلید API تست» فقط دسترسی و گزارش‌ها را جدا می‌کند؛ فاکتور ساخته‌شده همچنان واقعی است و واریز بانکی واقعی می‌تواند آن را تأیید کند.</p>
+        <div class="section-title"><div class="icon-box">🧪</div><div><h2>محیط Sandbox واقعی</h2><p>تست کامل API و Callback بدون انتقال وجه</p></div></div>
+        <div class="notice success"><b>Sandbox مستقل فعال است.</b> فاکتورهای آزمایشی در جدول جدا ذخیره می‌شوند، کارت بانکی یا کیف پول را درگیر نمی‌کنند و هیچ پیامک واقعی نمی‌تواند آن‌ها را تأیید کند.</div>
         <div class="status-table">
-          <div><code>webhook.test</code><span>از داخل ربات قابل ارسال است و بدون پرداخت واقعی فقط اتصال Callback و امضا را آزمایش می‌کند.</span></div>
-          <div><code>فاکتور تست</code><span>برای آزمایش انتها‌به‌انتها از فروشگاه، کلید و کارت جدا و حداقل مبلغ ۱٬۰۰۰ تومان استفاده کنید؛ وجه واقعی جابه‌جا می‌شود.</span></div>
-          <div><code>کارت/پیامک جعلی</code><span>پشتیبانی نمی‌شود و نباید به وبهوک محیط واقعی ارسال شود.</span></div>
+          <div><code>POST /api/v1/sandbox/invoices</code><span>ساخت فاکتور آزمایشی با همان API Key فروشگاه.</span></div>
+          <div><code>GET /api/v1/sandbox/invoices/{payment_id}</code><span>استعلام وضعیت آزمایشی.</span></div>
+          <div><code>POST /api/v1/sandbox/invoices/{payment_id}/simulate</code><span>شبیه‌سازی نتیجه <code>paid</code>، <code>failed</code> یا <code>expired</code>.</span></div>
+          <div><code>Callback</code><span>برای پرداخت موفق رویداد <code>sandbox.invoice.paid</code> با هدر <code>X-Gateway-Environment: sandbox</code> ارسال می‌شود.</span></div>
         </div>
+        <pre><code>curl -X POST "{{ base_url }}/api/v1/sandbox/invoices" \
+  -H "X-API-Key: gw_your_private_key" \
+  -H "Idempotency-Key: test-order-1001" \
+  -H "Content-Type: application/json" \
+  -d '{"amount_toman":200000,"order_id":"TEST-1001","description":"آزمایش اتصال"}'</code><button onclick="copyPre(this)">کپی</button></pre>
+        <pre><code>curl -X POST "{{ base_url }}/api/v1/sandbox/invoices/test_PAYMENT/simulate" \
+  -H "X-API-Key: gw_your_private_key" \
+  -H "Content-Type: application/json" \
+  -d '{"result":"paid"}'</code><button onclick="copyPre(this)">کپی</button></pre>
       </section>
 
       <section class="card" id="bot-example">
@@ -258,14 +276,14 @@ async def buy(message: Message):
 
       <section class="card" id="callback">
         <div class="section-title"><div class="icon-box">🔔</div><div><h2>Callback نتیجه پرداخت</h2><p>وبهوک اختصاصی هر فروشگاه با Secret مستقل</p></div></div>
-        <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. پاسخ موفق هر کد <code>2xx</code> است؛ Redirect دنبال نمی‌شود و Timeout هر تلاش ۱۲ ثانیه است.</p>
+        <p>پس از تأیید، یک درخواست POST با رویداد <code>invoice.paid</code> به آدرس ثبت‌شده ارسال می‌شود. پاسخ موفق هر کد <code>2xx</code> است؛ Redirect دنبال نمی‌شود و Timeout هر تلاش ۱۰ ثانیه است. رویداد ابتدا در Outbox دیتابیس ثبت می‌شود و با Restart یا Deploy از بین نمی‌رود.</p>
         <div class="status-table">
           <div><code>تلاش اول</code><span>بلافاصله پس از تأیید پرداخت.</span></div>
-          <div><code>تلاش دوم</code><span>۲ ثانیه پس از پایان تلاش اول.</span></div>
-          <div><code>تلاش سوم</code><span>۶ ثانیه پس از پایان تلاش دوم؛ در پاسخ‌های سریع تقریباً ۸ ثانیه پس از شروع تلاش اول.</span></div>
-          <div><code>Callback آزمایشی</code><span>فقط یک بار ارسال می‌شود و Retry ندارد.</span></div>
+          <div><code>تلاش دوم</code><span>۳۰ ثانیه پس از شکست تلاش اول.</span></div>
+          <div><code>تلاش سوم</code><span>۵ دقیقه پس از شکست تلاش دوم.</span></div>
+          <div><code>Callback آزمایشی</code><span>مانند Live در Outbox ثبت می‌شود و حداکثر سه تلاش دارد؛ هدر محیط روی sandbox قرار می‌گیرد.</span></div>
         </div>
-        <div class="notice">شناسه <code>X-Gateway-Delivery</code>، امضا و Timestamp در سه تلاش یک رویداد ثابت می‌مانند. زمان واقعی کل فرایند با توجه به تأخیر سرور مقصد می‌تواند بیشتر از ۸ ثانیه باشد.</div>
+        <div class="notice">شناسه <code>X-Gateway-Delivery</code> در همه تلاش‌های یک رویداد ثابت می‌ماند. نتیجه و مدت هر تلاش در جدول Callback Attempt ثبت می‌شود و از پنل وب پذیرنده قابل مشاهده است.</div>
         <div class="chips"><span>X-Gateway-Signature</span><span>X-Gateway-Event</span><span>X-Gateway-Delivery</span><span>X-Gateway-Timestamp</span></div>
         <pre><code>{
   "event": "invoice.paid",
@@ -349,6 +367,7 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
 }</code><button onclick="copyPre(this)">کپی</button></pre>
           <p>نام متغیرها در برنامه‌های مختلف فرق می‌کند. فیلد <code>bank_code</code> اختیاری است و برای اتصال عادی لازم نیست.</p>
         </details>
+        <div class="notice"><b>فهرست دستگاه‌های مجاز:</b> با <code>GET/PUT /api/v1/account/sms-devices</code> شناسه‌های مجاز مانند <code>phone-1</code> را مدیریت کنید. پس از تعریف فهرست، پیامک دستگاه ناشناس با خطای <code>SMS_DEVICE_NOT_TRUSTED</code> رد می‌شود.</div>
         <div class="notice danger">URL اختصاصی پیامک نقش کلید امنیتی دارد. آن را در کانال، گروه یا کد عمومی منتشر نکنید.</div>
       </section>
 
@@ -362,6 +381,16 @@ echo 'ok';</code><button onclick="copyPre(this)">کپی</button></pre>
         {% endfor %}
         </div>
         <div class="notice warning">پشتیبانی نرم‌افزاری همه بانک‌ها به معنی تضمین یکسان‌بودن تمام قالب‌های پیامک نیست. پیامک ناشناخته یا مبهم برای جلوگیری از تأیید اشتباه به بررسی دستی می‌رود.</div>
+      </section>
+
+      <section class="card" id="sdks">
+        <div class="section-title"><div class="icon-box">📦</div><div><h2>SDKهای رسمی سبک</h2><p>نمونه‌های آماده با Idempotency و Sandbox</p></div></div>
+        <div class="status-table">
+          <div><code>Python</code><span><a href="/static/sdks/bluepay.py" download>دریافت bluepay.py</a></span></div>
+          <div><code>Node.js</code><span><a href="/static/sdks/bluepay.js" download>دریافت bluepay.js</a></span></div>
+          <div><code>PHP</code><span><a href="/static/sdks/BluePay.php" download>دریافت BluePay.php</a></span></div>
+        </div>
+        <div class="notice">SDKها وابستگی سنگین ندارند و قرارداد خطا، Idempotency-Key و مسیرهای Live/Sandbox را یکپارچه می‌کنند.</div>
       </section>
 
       <section class="card" id="errors">

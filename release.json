@@ -1,7 +1,7 @@
 {
-  "name": "bluepay-v0.6.3-icon-scroll-fix",
-  "version": "0.6.3",
-  "min_version": "0.2.3",
-  "description": "اصلاح نمایش دایره‌ای لوگوی BluePay و رفع اسکرول صفحه پرداخت در مرورگر داخلی تلگرام",
+  "name": "bluepay-v1.0.1-enterprise-bootstrap",
+  "version": "1.0.1",
+  "min_version": "0.6.3",
+  "description": "نسخه سازمانی کامل؛ انتشار سازگار با توکن فعلی GitHub بدون فایل Workflow",
   "run_migrations": true
 }
