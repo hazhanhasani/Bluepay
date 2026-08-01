@@ -85,20 +85,47 @@ async function copyValue(value, button){
   }catch(e){ button.textContent='کپی ناموفق بود'; }
 }
 let statusFailures=0;
+let navigating=false;
+let expirationHandled=false;
+let timerHandle=null;
+let statusHandle=null;
+
 function renderNetworkState(online, text){
   const el=document.getElementById('networkState');
   if(!el) return;
   el.className='network-state '+(online?'online':'offline');
   el.textContent=text || (online?'اتصال برقرار است':'اتصال اینترنت قطع است؛ تلاش مجدد خودکار انجام می‌شود');
 }
+
+function disablePaymentActions(){
+  document.querySelectorAll('.amount-copy-button, .bank-card button').forEach((button)=>{
+    button.disabled=true;
+    button.setAttribute('aria-disabled','true');
+  });
+}
+
+function openTerminalPage(){
+  if(navigating) return;
+  navigating=true;
+  if(timerHandle) clearInterval(timerHandle);
+  if(statusHandle) clearInterval(statusHandle);
+  // replace prevents returning to the expired pending page with the browser back button.
+  window.location.replace(window.location.href);
+}
+
 async function checkStatus(){
+  if(navigating) return;
   if(!navigator.onLine){ renderNetworkState(false); return; }
   try{
     const response=await fetch('/api/payment/{{ invoice.token }}/status',{cache:'no-store',headers:{'X-Requested-With':'BluePay-Payment'}});
     if(!response.ok) throw new Error('status_'+response.status);
     const data=await response.json();
-    statusFailures=0; renderNetworkState(true,'اتصال برقرار است؛ وضعیت پرداخت در حال پایش است');
-    if(['paid','expired','cancelled'].includes(data.status)) location.reload();
+    statusFailures=0;
+    renderNetworkState(true,'اتصال برقرار است؛ وضعیت پرداخت در حال پایش است');
+    if(['paid','expired','cancelled'].includes(data.status)){
+      openTerminalPage();
+      return;
+    }
     const received=document.getElementById('receivedAmount');
     const remaining=document.getElementById('remainingAmount');
     if(received) received.textContent=new Intl.NumberFormat('fa-IR').format(Math.floor((data.received_amount_rial||0)/10))+' تومان';
@@ -108,16 +135,35 @@ async function checkStatus(){
     renderNetworkState(false, statusFailures>2?'اتصال ناپایدار است؛ صفحه را نبندید':'در حال اتصال مجدد…');
   }
 }
+
 const expiry=new Date('{{ invoice.expires_at.isoformat() }}');
 function tick(){
-  const diff=Math.max(0,expiry.getTime()-Date.now());
-  const m=Math.floor(diff/60000); const s=Math.floor((diff%60000)/1000);
-  document.getElementById('countdown').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  if(diff===0) setTimeout(()=>location.reload(),1000);
+  const countdown=document.getElementById('countdown');
+  const diff=expiry.getTime()-Date.now();
+  if(diff<=0){
+    countdown.textContent='پایان مهلت';
+    if(!expirationHandled){
+      expirationHandled=true;
+      disablePaymentActions();
+      renderNetworkState(true,'مهلت پرداخت پایان یافته؛ در حال دریافت وضعیت نهایی…');
+      // Ask the server once immediately. The regular status poll continues without reloading
+      // until the server marks the invoice expired, paid or cancelled.
+      checkStatus();
+    }
+    return;
+  }
+  const m=Math.floor(diff/60000);
+  const s=Math.floor((diff%60000)/1000);
+  countdown.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
+
 window.addEventListener('online',()=>{renderNetworkState(true,'اتصال دوباره برقرار شد');checkStatus();});
 window.addEventListener('offline',()=>renderNetworkState(false));
-tick(); checkStatus(); setInterval(tick,1000); setInterval(checkStatus,3000);
+
+tick();
+checkStatus();
+timerHandle=setInterval(tick,1000);
+statusHandle=setInterval(checkStatus,3000);
 </script>
 </body>
 </html>
