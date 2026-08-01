@@ -1,7 +1,7 @@
 {
-  "name": "gateway-bot-v0.6.2-brand-logo",
-  "version": "0.6.2",
+  "name": "bluepay-v0.6.3-icon-scroll-fix",
+  "version": "0.6.3",
   "min_version": "0.2.3",
-  "description": "اتصال وب‌سایت عمومی به داده‌های واقعی و ناشناس ربات؛ نمایش زنده آخرین وضعیت فاکتور، Callback و آمار عملیاتی با به‌روزرسانی خودکار",
+  "description": "اصلاح نمایش دایره‌ای لوگوی BluePay و رفع اسکرول صفحه پرداخت در مرورگر داخلی تلگرام",
   "run_migrations": true
 }

@@ -164,9 +164,75 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
 @media(max-width:620px){.live-stat-grid{grid-template-columns:1fr 1fr;gap:9px}.live-stat-grid article{min-height:130px;padding:16px}.live-stat-grid strong{font-size:25px}.privacy-note{text-align:center}.live-updated{font-size:7px}}
 
 
-/* BluePay brand image assets */
-.brand-mark--image,.preview-logo--image,.logo-image{padding:0;overflow:hidden}
-.brand-mark--image img,.preview-logo--image img,.logo-image img{display:block;width:78%;height:78%;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(47,109,246,.28))}
-.logo-image img{width:86%;height:86%}
-.footer-brand .brand-mark--image img{width:80%;height:80%}
-@media(max-width:620px){.brand-mark--image img,.preview-logo--image img,.logo-image img{width:80%;height:80%}}
+
+
+/* BluePay brand image assets — circular, clean and consistent */
+.brand-mark--image,
+.preview-logo--image,
+.logo-image{
+  padding:0;
+  overflow:hidden;
+  border-radius:50%;
+  background:#06122a;
+  border:1px solid rgba(72,151,255,.48);
+  box-shadow:0 10px 28px rgba(30,102,255,.30),inset 0 0 0 1px rgba(255,255,255,.06);
+  flex:0 0 auto;
+}
+.brand-mark--image img,
+.preview-logo--image img,
+.logo-image img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center;
+  border-radius:50%;
+  transform:scale(1.035);
+  filter:none;
+}
+.preview-logo--image{border-radius:50%}
+.footer-brand .brand-mark--image img{width:100%;height:100%}
+
+/* Mobile/Telegram payment page scrolling */
+html{
+  min-height:100%;
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-text-size-adjust:100%;
+}
+body.payment-body{
+  position:relative;
+  width:100%;
+  min-height:100vh;
+  min-height:100dvh;
+  height:auto;
+  overflow-x:hidden;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:auto;
+  touch-action:pan-y;
+}
+body.payment-body::before{
+  position:absolute;
+  min-height:100%;
+}
+.payment-body .shell{
+  min-height:calc(100dvh + 1px);
+  height:auto;
+  padding-top:20px;
+  padding-bottom:calc(120px + env(safe-area-inset-bottom,0px));
+  overflow:visible;
+}
+.payment-body .card{
+  touch-action:pan-y;
+}
+.payment-body .card-number{
+  max-width:100%;
+  overflow-wrap:anywhere;
+  font-size:clamp(20px,6.2vw,25px);
+}
+@media(max-width:620px){
+  .brand-mark--image,.preview-logo--image{border-radius:50%}
+  .payment-body .shell{width:min(94%,560px);padding-bottom:calc(140px + env(safe-area-inset-bottom,0px))}
+  .payment-body .card{overflow:hidden}
+}
