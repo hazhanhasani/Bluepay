@@ -27,6 +27,7 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
         if "callback_secret" in merchant_columns:
             update = await connection.execute(text("UPDATE merchants SET callback_secret = lower(hex(randomblob(32))) WHERE callback_secret IS NULL OR callback_secret = ''"))
             changed |= (update.rowcount or 0) > 0
+        changed |= await _sqlite_add(connection, "merchants", merchant_columns, "return_url", "TEXT")
         changed |= await _sqlite_add(connection, "merchants", merchant_columns, "sms_token_version", "INTEGER NOT NULL DEFAULT 1")
         changed |= await _sqlite_add(connection, "merchants", merchant_columns, "phone_number_encrypted", "TEXT")
         changed |= await _sqlite_add(connection, "merchants", merchant_columns, "phone_last4", "VARCHAR(4)")
@@ -110,6 +111,7 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
 
 async def _run_postgres_migrations(engine: AsyncEngine) -> bool:
     statements = [
+        "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS return_url TEXT",
         "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS sms_token_version INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS phone_number_encrypted TEXT",
         "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS phone_last4 VARCHAR(4)",
