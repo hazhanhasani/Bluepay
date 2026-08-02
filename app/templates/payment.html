@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07101f">
   <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.merchant.name }}{% endif %}</title>
   <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v={{ app_version }}">
+  <link rel="stylesheet" href="/static/style.css?v=1.2.2-payment-logo">
 </head>
 <body class="payment-body">
 <main class="shell">
@@ -38,7 +38,7 @@
     <div class="amount-label">مبلغ دقیق قابل پرداخت</div>
     <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
     <div class="amount-hint">این مبلغ را بدون کم‌وزیاد واریز کنید</div>
-    <button class="secondary-button amount-copy-button" onclick="copyValue('{{ toman(invoice.payable_amount_rial) }}', this, 'مبلغ کپی شد ✓')">کپی مبلغ دقیق</button>
+    <button class="secondary-button amount-copy-button" onclick="copyValue('{{ toman(invoice.payable_amount_rial) }}', this)">کپی مبلغ دقیق</button>
     <div class="summary">
       <div><span>{% if invoice.purpose == 'wallet_topup' %}اعتبار انتخابی{% else %}مبلغ سفارش{% endif %}</span><b>{{ "{:,}".format(toman(invoice.base_amount_rial)) }} تومان</b></div>
       {% if invoice.purpose != 'wallet_topup' %}<div><span>سهم هزینه مشتری</span><b>{{ "{:,}".format(toman(invoice.customer_fee_rial)) }} تومان</b></div>{% endif %}
@@ -59,7 +59,7 @@
     </div>
     <div id="cardNumber" class="card-number">{{ card_display }}</div>
     <div class="holder">به نام {{ invoice.card.account_holder }}</div>
-    {% if card_copy %}<button class="primary-button" onclick="copyValue('{{ card_copy }}', this, 'شماره کارت کپی شد ✓')">کپی شماره کارت</button>{% endif %}
+    {% if card_copy %}<button class="primary-button" onclick="copyValue('{{ card_copy }}', this)">کپی شماره کارت</button>{% endif %}
   </section>
 
   <section class="card note">
@@ -73,32 +73,16 @@
     </ul>
     <div id="networkState" class="network-state online">اتصال برقرار است</div>
     <div class="loader-line"><span></span> در حال پایش وضعیت تراکنش</div>
-    <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود</div>
+    <div class="security-strip">🔐 اطلاعات بانکی در این صفحه ذخیره نمی‌شود{% if option_profile and option_profile.anti_phishing_code %} • کد امنیتی: <b>{{ option_profile.anti_phishing_code }}</b>{% endif %}</div>
   </section>
 </main>
 <script>
-async function copyValue(value, button, successText){
-  const old=button.textContent;
+async function copyValue(value, button){
   try{
-    if(navigator.clipboard && window.isSecureContext){
-      await navigator.clipboard.writeText(value);
-    }else{
-      const temp=document.createElement('textarea');
-      temp.value=value;
-      temp.setAttribute('readonly','');
-      temp.style.position='fixed';
-      temp.style.opacity='0';
-      document.body.appendChild(temp);
-      temp.select();
-      const copied=document.execCommand('copy');
-      temp.remove();
-      if(!copied) throw new Error('copy_failed');
-    }
-    button.textContent=successText || 'کپی شد ✓';
-  }catch(e){
-    button.textContent='کپی ناموفق بود';
-  }
-  setTimeout(()=>button.textContent=old,1600);
+    await navigator.clipboard.writeText(value);
+    const old=button.textContent; button.textContent='شماره کارت کپی شد ✓';
+    setTimeout(()=>button.textContent=old,1600);
+  }catch(e){ button.textContent='کپی ناموفق بود'; }
 }
 let statusFailures=0;
 let navigating=false;
@@ -152,7 +136,7 @@ async function checkStatus(){
   }
 }
 
-const expiry=new Date('{{ expires_at_iso }}');
+const expiry=new Date('{{ invoice.expires_at.isoformat() }}');
 function tick(){
   const countdown=document.getElementById('countdown');
   const diff=expiry.getTime()-Date.now();
