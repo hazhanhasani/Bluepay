@@ -185,23 +185,6 @@ Sandbox records never reserve a real amount, select a live card, consume wallet 
 7. Keep the previous commit recorded for immediate rollback.
 8. Build ZIP from repository root, remove caches/runtime data, run `unzip -t`, and publish SHA-256.
 
-## Commerce scheduler and automation worker
+## Telegram delivery in 1.2.2
 
-Version 1.2.0 adds two independent durable workers:
-
-- `commerce-scheduler`: creates subscription and scheduled invoices, dispatches queued payment requests and sends due reminders.
-- `fulfillment-options`: executes connector calls, Telegram notifications, digital delivery, cashback and no-code automation actions with retry.
-
-All business jobs are persisted before execution. A restart does not remove pending jobs. Failed jobs are placed in the admin inbox after their retry budget is exhausted.
-
-### Permanent payment links
-
-Public links use `/l/{slug}` and can collect customer data, apply discount and affiliate codes, create partial-payment invoices and emit analytics events. QR routes are generated locally and do not send payment data to third parties.
-
-### Connector security
-
-Connector secrets and headers are encrypted with the application encryption key. Final URLs are validated as public HTTPS destinations. Redirects are not followed. Use one least-privilege API key per connector and rotate it from the merchant options center.
-
-### Commerce migration
-
-Alembic revision `20260801_1200` creates the new commerce tables and adds invoice links for customer, campaign, A/B variant, discount, affiliate and subscription. The migration is additive and its downgrade intentionally retains financial and commerce history.
+Production uses resilient long polling. On startup BluePay calls `deleteWebhook` and then starts polling. This avoids stale or broken webhook routes after a release. Do not run multiple permanent replicas with the same bot token.

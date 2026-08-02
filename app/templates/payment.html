@@ -6,13 +6,13 @@
   <meta name="theme-color" content="#07101f">
   <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.merchant.name }}{% endif %}</title>
   <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=1.2.2-payment-logo">
+  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
 </head>
 <body class="payment-body">
 <main class="shell">
   <div class="brandbar">
     <div class="brand">
-      <div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-icon.png" alt="BluePay"></div>
+      <div class="brand-mark brand-mark--image"><img src="/static/brand/bluepay-logo-full.png" alt="BluePay"></div>
       <div class="brand-copy"><strong>بلوپی</strong><span>پرداخت مستقیم و امن</span></div>
     </div>
     {% if verification and verification.trust_badge_enabled %}<span class="badge success">✓ پذیرنده تأییدشده</span>{% else %}<span class="badge">🔒 اتصال امن</span>{% endif %}
@@ -25,7 +25,7 @@
   </div>
 
   <section class="card merchant-head">
-    <div class="logo {% if invoice.purpose == 'wallet_topup' %}logo-image{% endif %}">{% if invoice.purpose == 'wallet_topup' %}<img src="/static/brand/bluepay-logo-icon.png" alt="BluePay">{% else %}{{ invoice.merchant.name[:1] }}{% endif %}</div>
+    <div class="logo {% if invoice.purpose == 'wallet_topup' %}logo-image{% endif %}">{% if invoice.purpose == 'wallet_topup' %}<img src="/static/brand/bluepay-logo-full.png" alt="BluePay">{% else %}{{ invoice.merchant.name[:1] }}{% endif %}</div>
     <div>
       <small>{% if invoice.purpose == 'wallet_topup' %}افزایش اعتبار خدمات{% else %}پرداخت به پذیرنده{% endif %}</small>
       <h1>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول بلوپی{% else %}{{ invoice.merchant.name }}{% endif %}</h1>

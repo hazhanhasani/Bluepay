@@ -1,7 +1,7 @@
 {
-  "name": "BluePay Integration Core Bugfix",
+  "name": "BluePay Integration Core Final",
   "version": "1.2.2",
-  "min_version": "1.2.1",
-  "description": "General stability and security bugfix release for backups, Telegram delivery, manual invoices, idempotency, expiry races, diagnostics, release ZIP validation and payment pages.",
+  "min_version": "1.1.0",
+  "description": "Stable integration gateway with manual invoices, API, signed callbacks, SMS confirmation and resilient Telegram polling; commerce options and automation remain disabled.",
   "run_migrations": true
 }

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", alias="APP_ENV")
     callback_worker_interval_seconds: int = Field(default=2, alias="CALLBACK_WORKER_INTERVAL_SECONDS")
     callback_worker_batch_size: int = Field(default=30, alias="CALLBACK_WORKER_BATCH_SIZE")
-    telegram_mode: str = Field(default="polling", alias="TELEGRAM_MODE")
+    telegram_mode: str = Field(default="auto", alias="TELEGRAM_MODE")
     telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     sms_hmac_max_age_seconds: int = Field(default=300, alias="SMS_HMAC_MAX_AGE_SECONDS")
     release_staging_branch: str = Field(default="bluepay-staging", alias="RELEASE_STAGING_BRANCH")

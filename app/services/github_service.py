@@ -36,8 +36,6 @@ class PublishResult:
 
 
 def validate_release_zip(data: bytes) -> ReleasePackage:
-    if not data:
-        raise ValueError("فایل ZIP خالی است")
     if len(data) > MAX_ZIP_BYTES:
         raise ValueError("حجم ZIP بیشتر از ۲۵ مگابایت است")
 
@@ -45,52 +43,26 @@ def validate_release_zip(data: bytes) -> ReleasePackage:
     files: dict[str, bytes] = {}
     total = 0
     python_files = 0
-    try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
-    except (zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
-        raise ValueError("فایل ارسالی ZIP معتبر نیست یا ناقص دانلود شده است") from exc
-
-    with archive:
-        try:
-            bad = archive.testzip()
-        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-            raise ValueError("ساختار داخلی ZIP خراب یا قابل خواندن نیست") from exc
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        bad = archive.testzip()
         if bad:
             raise ValueError(f"فایل خراب داخل ZIP: {bad}")
-
         infos = [i for i in archive.infolist() if not i.is_dir()]
         if len(infos) > MAX_FILES:
             raise ValueError("تعداد فایل‌های بسته بیش از حد مجاز است")
-
-        # Validate declared sizes before decompressing. This rejects zip bombs
-        # without allocating the advertised payload in memory.
-        declared_total = sum(max(0, int(info.file_size)) for info in infos)
-        if declared_total > MAX_EXTRACTED_BYTES:
-            raise ValueError("حجم استخراج‌شده بسته بیش از حد مجاز است")
-
-        seen_paths: set[str] = set()
         for info in infos:
-            raw_path = info.filename.replace("\\", "/").lstrip("/")
-            path = posixpath.normpath(raw_path)
-            if not path or path == ".":
-                continue
+            path = info.filename.replace("\\", "/").lstrip("/")
+            path = posixpath.normpath(path)
             if path.startswith("../") or path == ".." or "/../" in f"/{path}":
                 raise ValueError("مسیر ناامن داخل ZIP شناسایی شد")
             if path.startswith("__MACOSX/") or path.endswith("/.DS_Store"):
                 continue
-            if path in seen_paths:
-                raise ValueError(f"مسیر تکراری داخل ZIP شناسایی شد: {path}")
-            seen_paths.add(path)
-
             basename = posixpath.basename(path)
             if basename in BLOCKED_NAMES or any(basename.lower().endswith(suffix) for suffix in BLOCKED_SUFFIXES):
                 raise ValueError(f"فایل حساس یا دیتابیس {path} نباید داخل بسته باشد")
             if info.external_attr >> 16 & 0o170000 == 0o120000:
                 raise ValueError("Symbolic link داخل ZIP مجاز نیست")
-            try:
-                content = archive.read(info)
-            except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
-                raise ValueError(f"خواندن فایل {path} از ZIP ناموفق بود") from exc
+            content = archive.read(info)
             total += len(content)
             if total > MAX_EXTRACTED_BYTES:
                 raise ValueError("حجم استخراج‌شده بسته بیش از حد مجاز است")
