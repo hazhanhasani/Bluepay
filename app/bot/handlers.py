@@ -11,6 +11,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.bot.access import show_access_prompt
 from app.bot.keyboards import (
@@ -597,7 +598,12 @@ async def add_card_bank_button(callback: CallbackQuery, state: FSMContext):
 
 @router.message(AddCardState.bank)
 async def add_card_bank(message: Message, state: FSMContext):
-    code = normalize_bank_code(message.text)
+    raw_bank = " ".join((message.text or "").split()).strip()
+    if not raw_bank:
+        return await message.answer(
+            "نام بانک را به‌صورت متن وارد کنید.", reply_markup=flow_cancel_menu()
+        )
+    code = normalize_bank_code(raw_bank)
     await state.update_data(bank=code)
     await state.set_state(AddCardState.card_number)
     await message.answer(
@@ -634,7 +640,12 @@ async def add_card_number(message: Message, state: FSMContext):
 
 @router.message(AddCardState.holder)
 async def add_card_holder(message: Message, state: FSMContext):
-    await state.update_data(holder=message.text.strip())
+    holder = " ".join((message.text or "").split()).strip()[:120]
+    if len(holder) < 3:
+        return await message.answer(
+            "نام صاحب کارت را به‌صورت متن وارد کنید.", reply_markup=flow_cancel_menu()
+        )
+    await state.update_data(holder=holder)
     await state.set_state(AddCardState.source_id)
     await message.answer(
         panel(
@@ -650,7 +661,13 @@ async def add_card_holder(message: Message, state: FSMContext):
 @router.message(AddCardState.source_id)
 async def add_card_source(message: Message, state: FSMContext):
     data = await state.get_data()
-    source_id = None if message.text.strip() == "-" else message.text.strip()
+    source_text = (message.text or "").strip()
+    if not source_text:
+        return await message.answer(
+            "شناسه دستگاه را وارد کنید یا برای حالت بدون محدودیت علامت <code>-</code> بفرستید.",
+            reply_markup=flow_cancel_menu(),
+        )
+    source_id = None if source_text == "-" else source_text[:120]
     async with SessionLocal() as session:
         merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
         encryption_key = await get_setting(session, "encryption_key")
@@ -764,6 +781,9 @@ async def cancel_flow(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.in_({"invoice:new", "invoice:restart"}))
 async def invoice_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
+    await state.update_data(
+        manual_order_id=f"MANUAL-TG-{callback.from_user.id}-{secrets.token_hex(6).upper()}"
+    )
     await state.set_state(ManualInvoiceState.amount)
     await callback.message.edit_text(
         panel(
@@ -784,13 +804,21 @@ async def invoice_start(callback: CallbackQuery, state: FSMContext):
 @router.message(ManualInvoiceState.amount)
 async def invoice_amount(message: Message, state: FSMContext):
     raw = digits_only(message.text)
-    if not raw or int(raw) < 1000:
+    if not raw:
         return await message.answer(
-            warning("مبلغ معتبر نیست", "مبلغ سفارش باید عددی و حداقل ۱٬۰۰۰ تومان باشد."),
+            warning("مبلغ معتبر نیست", "مبلغ سفارش را به‌صورت عددی و به تومان وارد کنید."),
             reply_markup=flow_cancel_menu(),
         )
 
     amount = int(raw)
+    if amount < 1_000 or amount > 500_000_000:
+        return await message.answer(
+            warning(
+                "مبلغ خارج از محدوده است",
+                "مبلغ سفارش باید بین ۱٬۰۰۰ تا ۵۰۰٬۰۰۰٬۰۰۰ تومان باشد.",
+            ),
+            reply_markup=flow_cancel_menu(),
+        )
     await state.update_data(amount_toman=amount)
     await state.set_state(ManualInvoiceState.description)
     await message.answer(
@@ -805,7 +833,7 @@ async def invoice_amount(message: Message, state: FSMContext):
 
 @router.message(ManualInvoiceState.description)
 async def invoice_description(message: Message, state: FSMContext):
-    description = message.text.strip()[:500]
+    description = " ".join((message.text or "").split()).strip()[:500]
     if not description:
         return await message.answer("عنوان فاکتور الزامی است.", reply_markup=flow_cancel_menu())
 
@@ -838,7 +866,7 @@ async def invoice_description(message: Message, state: FSMContext):
 
 @router.message(ManualInvoiceState.fee_mode)
 async def invoice_fee_mode_text(message: Message, state: FSMContext):
-    mode = message.text.strip().lower()
+    mode = (message.text or "").strip().lower()
     merchant = await current_merchant(message.from_user.id)
     if not merchant:
         await state.clear()
@@ -1015,51 +1043,127 @@ async def invoice_confirm(callback: CallbackQuery, state: FSMContext):
         return await callback.answer("اطلاعات فاکتور منقضی شده است؛ دوباره شروع کنید.", show_alert=True)
 
     data = await state.get_data()
+    manual_order_id = data.get("manual_order_id") or (
+        f"MANUAL-TG-{callback.from_user.id}-{secrets.token_hex(6).upper()}"
+    )
+    await state.update_data(manual_order_id=manual_order_id)
     await state.set_state(ManualInvoiceState.processing)
+
+    invoice = None
+    card = None
     try:
         async with SessionLocal() as session:
-            merchant = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id))
-            invoice = await create_invoice(
-                session,
-                merchant,
-                base_amount_rial=data["amount_toman"] * 10,
-                description=data["description"],
-                fee_mode=data["resolved_fee_mode"],
-                card_id=data["selected_card_id"],
-                source_channel="telegram_bot",
+            merchant = await session.scalar(
+                select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id)
             )
+            if not merchant:
+                raise ValueError("حساب پذیرنده یافت نشد")
+
+            # The stable order id makes confirmation idempotent. A double tap,
+            # Telegram retry or message-edit failure must never create a second
+            # payable invoice for the same manual flow.
+            invoice = await session.scalar(
+                select(Invoice).where(
+                    Invoice.merchant_id == merchant.id,
+                    Invoice.order_id == manual_order_id,
+                )
+            )
+            if invoice is None:
+                invoice = await create_invoice(
+                    session,
+                    merchant,
+                    base_amount_rial=data["amount_toman"] * 10,
+                    description=data["description"],
+                    order_id=manual_order_id,
+                    fee_mode=data["resolved_fee_mode"],
+                    card_id=data["selected_card_id"],
+                    source_channel="telegram_bot",
+                )
             card = await session.get(BankCard, invoice.card_id)
             await session.commit()
-
-        payment_url = f"{settings.base_url}/pay/{invoice.token}"
-        await state.clear()
-        text = success(
-            "فاکتور آماده دریافت وجه است",
-            "\n".join([
-                f"📝 عنوان: <b>{esc(invoice.description or '-')}</b>",
-                f"🧾 شناسه پرداخت: <code>{invoice.token}</code>",
-                f"💳 مبلغ دقیق واریز: <b>{money_toman(invoice.payable_amount_rial)}</b>",
-                f"🔢 کد تطبیق: <b>+{money_toman(invoice.unique_amount_rial)}</b>",
-                f"🏦 مقصد: <b>{bank_title(card.bank_code)} •••• {card.card_last4}</b>",
-                f"⏳ وضعیت: <b>{badge('pending')}</b>",
-                "",
-                "🌐 برای مشاهده صفحه پرداخت، از دکمه «بازکردن داخل تلگرام» استفاده کنید.",
-            ]),
-            footer="برای ارسال به مشتری، دکمه «کپی لینک پرداخت» را بزنید. وضعیت پرداخت پس از دریافت پیامک بانک به‌صورت خودکار به‌روزرسانی می‌شود.",
+    except IntegrityError:
+        # A concurrent confirmation may win the unique order constraint. Read
+        # and return that invoice instead of reporting failure or creating one
+        # with a new order id.
+        async with SessionLocal() as session:
+            merchant = await session.scalar(
+                select(Merchant).where(Merchant.telegram_user_id == callback.from_user.id)
+            )
+            if merchant:
+                invoice = await session.scalar(
+                    select(Invoice).where(
+                        Invoice.merchant_id == merchant.id,
+                        Invoice.order_id == manual_order_id,
+                    )
+                )
+                if invoice:
+                    card = await session.get(BankCard, invoice.card_id)
+        if invoice is None:
+            await state.set_state(ManualInvoiceState.confirm)
+            await callback.answer("صدور فاکتور ناموفق بود؛ دوباره تلاش کنید.", show_alert=True)
+            return
+    except ValueError as exc:
+        await state.set_state(ManualInvoiceState.confirm)
+        await callback.answer("صدور فاکتور انجام نشد.", show_alert=True)
+        await callback.message.edit_text(
+            error(
+                "فاکتور صادر نشد",
+                esc(str(exc)),
+                footer="اطلاعات واردشده حفظ شده است؛ پس از رفع مشکل دوباره تأیید کنید.",
+            ),
+            reply_markup=invoice_confirm_menu(),
         )
-        await callback.message.edit_text(text, reply_markup=payment_created_menu(payment_url))
-        await callback.answer("فاکتور صادر شد.")
+        return
     except Exception as exc:
+        print(
+            f"manual_invoice_create_error order_id={manual_order_id} "
+            f"{type(exc).__name__}: {exc}"
+        )
         await state.set_state(ManualInvoiceState.confirm)
         await callback.answer("صدور فاکتور ناموفق بود.", show_alert=True)
         await callback.message.edit_text(
             error(
                 "فاکتور صادر نشد",
-                f"کد خطا: <code>{esc(str(exc))}</code>",
-                footer="اطلاعات این فاکتور حفظ شده است؛ پس از رفع مشکل دوباره تأیید کنید.",
+                "خطای داخلی هنگام صدور فاکتور رخ داد. دوباره تلاش کنید.",
+                footer="اطلاعات واردشده حفظ شده است و فاکتور تکراری ساخته نخواهد شد.",
             ),
             reply_markup=invoice_confirm_menu(),
         )
+        return
+
+    await state.clear()
+    payment_url = f"{settings.base_url}/pay/{invoice.token}"
+    card_label = (
+        f"{bank_title(card.bank_code)} •••• {card.card_last4}"
+        if card
+        else "کارت مقصد ثبت‌شده"
+    )
+    text = success(
+        "فاکتور آماده دریافت وجه است",
+        "\n".join([
+            f"📝 عنوان: <b>{esc(invoice.description or '-')}</b>",
+            f"🧾 شناسه پرداخت: <code>{invoice.token}</code>",
+            f"💳 مبلغ دقیق واریز: <b>{money_toman(invoice.payable_amount_rial)}</b>",
+            f"🔢 کد تطبیق: <b>+{money_toman(invoice.unique_amount_rial)}</b>",
+            f"🏦 مقصد: <b>{esc(card_label)}</b>",
+            f"⏳ وضعیت: <b>{badge(invoice.status)}</b>",
+            "",
+            "🌐 برای مشاهده صفحه پرداخت، از دکمه «بازکردن داخل تلگرام» استفاده کنید.",
+        ]),
+        footer="برای ارسال به مشتری، دکمه «کپی لینک پرداخت» را بزنید. وضعیت پرداخت پس از دریافت پیامک بانک به‌صورت خودکار به‌روزرسانی می‌شود.",
+    )
+
+    try:
+        await callback.message.edit_text(text, reply_markup=payment_created_menu(payment_url))
+    except Exception as exc:
+        # The invoice is already committed. A stale Telegram message must not
+        # turn a successful payment request into a retryable creation failure.
+        print(f"manual_invoice_message_edit_error={type(exc).__name__}: {exc}")
+        await callback.message.answer(text, reply_markup=payment_created_menu(payment_url))
+    try:
+        await callback.answer("فاکتور صادر شد.")
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "connect")
 async def connection_panel(callback: CallbackQuery):
@@ -1798,20 +1902,27 @@ async def callback_test(callback: CallbackQuery):
 
 @router.message(Command("credit"))
 async def admin_credit(message: Message):
-    parts = message.text.split()
+    parts = (message.text or "").split()
     if len(parts) != 3:
         return await message.answer("فرمت: /credit TELEGRAM_ID AMOUNT_TOMAN")
+    try:
+        target_id = int(parts[1])
+        amount_toman = int(parts[2])
+        if target_id <= 0 or amount_toman <= 0:
+            raise ValueError
+    except ValueError:
+        return await message.answer("شناسه کاربر یا مبلغ شارژ معتبر نیست.")
     async with SessionLocal() as session:
         admin = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == message.from_user.id))
         if not admin or not admin.is_admin:
             return await message.answer("این دستور فقط برای مدیر است.")
-        target = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == int(parts[1])))
+        target = await session.scalar(select(Merchant).where(Merchant.telegram_user_id == target_id))
         if not target:
             return await message.answer("کاربر مقصد یافت نشد.")
-        amount_rial = int(parts[2]) * 10
+        amount_rial = amount_toman * 10
         await credit_wallet(session, target, amount_rial, f"شارژ توسط مدیر {admin.telegram_user_id}", f"admin:{message.message_id}:{target.id}")
         await session.commit()
-    await message.answer(f"✅ کیف پول کاربر {parts[1]} به مبلغ {int(parts[2]):,} تومان شارژ شد.")
+    await message.answer(f"✅ کیف پول کاربر {target_id} به مبلغ {amount_toman:,} تومان شارژ شد.")
 
 
 @router.message(Command("callback"))
@@ -2155,8 +2266,13 @@ async def release_upload(message: Message, state: FSMContext):
             return
         repository = settings.github_repository
         branch = settings.github_branch
-    if not message.document.file_name.lower().endswith(".zip"):
+    file_name = (message.document.file_name or "").strip()
+    if not file_name.lower().endswith(".zip"):
         return await message.answer(warning("فرمت فایل پشتیبانی نمی‌شود", "فقط بسته ZIP نسخه جدید پذیرفته می‌شود."))
+    if message.document.file_size and message.document.file_size > 25 * 1024 * 1024:
+        return await message.answer(
+            warning("حجم فایل بیش از حد مجاز است", "حداکثر حجم بسته انتشار ۲۵ مگابایت است.")
+        )
 
     data = await state.get_data()
     current_state = await state.get_state()
@@ -2166,9 +2282,9 @@ async def release_upload(message: Message, state: FSMContext):
 
     status = await message.answer(info("در حال بررسی بسته", f"هدف: <b>{'Staging' if target == 'staging' else 'Production'}</b>\nساختار، Syntax، Migration و دسترسی GitHub در حال بررسی است."))
     buffer = io.BytesIO()
-    await message.bot.download(message.document, destination=buffer)
     package = None
     try:
+        await message.bot.download(message.document, destination=buffer)
         package = validate_release_zip(buffer.getvalue())
         publisher = GitHubPublisher(settings.github_token or "", repository, branch or "main")
         preflight = await publisher.preflight(needs_workflows=bool(package.validation.get("workflow_files")))

@@ -106,12 +106,28 @@ async def housekeeping_worker() -> None:
 
 
 async def telegram_polling_worker() -> None:
-    await bot.delete_webhook(drop_pending_updates=False)
-    runtime_status.telegram_mode = "polling"
-    runtime_status.telegram_ok = True
+    """Run Telegram polling and recover from transient Bot API failures.
+
+    Deleting an old webhook is part of the retry loop. Previously a temporary
+    failure in ``deleteWebhook`` killed the task before polling had started while
+    the HTTP service still reported itself ready.
+    """
     while True:
         try:
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), handle_signals=False)
+            runtime_status.telegram_mode = "polling-starting"
+            runtime_status.telegram_ok = False
+            await bot.delete_webhook(drop_pending_updates=False)
+            runtime_status.telegram_mode = "polling"
+            runtime_status.telegram_ok = True
+            await dp.start_polling(
+                bot,
+                allowed_updates=dp.resolve_used_update_types(),
+                handle_signals=False,
+            )
+            # start_polling normally runs until cancelled. A normal return means
+            # delivery stopped and should be restarted.
+            runtime_status.telegram_ok = False
+            await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -148,17 +164,16 @@ async def notify_startup_failure(exc: BaseException) -> None:
 async def configure_telegram_delivery() -> asyncio.Task | None:
     """Start Telegram delivery in resilient polling mode.
 
-    Railway deployments may leave Telegram pointing at a stale webhook while the
-    new release is already healthy. Polling explicitly removes any old webhook
-    inside ``telegram_polling_worker`` and resumes updates without requiring a
-    second environment variable or manual Bot API call.
+    This deployment uses one active Railway replica. Polling explicitly removes
+    stale webhook configuration on every retry and avoids the 500-response loop
+    that previously stopped bot updates after a release.
     """
     me = await bot.get_me()
     if not me.id:
         raise RuntimeError("Telegram getMe returned no bot id")
 
     runtime_status.telegram_mode = "polling-starting"
-    runtime_status.telegram_ok = True
+    runtime_status.telegram_ok = False
     return asyncio.create_task(telegram_polling_worker(), name="telegram-polling")
 
 
@@ -190,6 +205,11 @@ async def lifespan(app: FastAPI):
             await load_appearance_settings(session)
             await session.commit()
         runtime_status.settings_ok = True
+        # Migrations may update SQLite through a raw Alembic connection and do
+        # not pass through the ORM commit hooks. Queue one post-startup snapshot
+        # so a freshly upgraded schema is backed up even when no user writes
+        # occur immediately after deployment.
+        storage.mark_dirty()
 
         telegram_task = await configure_telegram_delivery()
         if telegram_task:
@@ -302,11 +322,28 @@ async def telegram_webhook(path_secret: str, request: Request):
         header_secret, settings.effective_telegram_webhook_secret
     ):
         return JSONResponse(status_code=403, content={"ok": False})
-    payload = await request.json()
-    update = Update.model_validate(payload, context={"bot": bot})
-    await dp.feed_update(bot, update)
-    runtime_status.telegram_ok = True
-    return {"ok": True}
+
+    try:
+        payload = await request.json()
+        update = Update.model_validate(payload, context={"bot": bot})
+    except Exception as exc:
+        print(f"telegram_webhook_payload_error={type(exc).__name__}: {exc}")
+        return JSONResponse(status_code=400, content={"ok": False, "code": "INVALID_UPDATE"})
+
+    try:
+        await dp.feed_update(bot, update)
+        runtime_status.telegram_ok = True
+    except Exception as exc:
+        # A single poison update must not make Telegram retry the same payload
+        # indefinitely and block later updates. Log it and acknowledge receipt.
+        update_id = getattr(update, "update_id", "unknown")
+        print(f"telegram_update_error update_id={update_id} {type(exc).__name__}: {exc}")
+        return JSONResponse(
+            status_code=200,
+            content={"ok": False, "accepted": True, "code": "UPDATE_HANDLER_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(status_code=200, content={"ok": True}, headers={"Cache-Control": "no-store"})
 
 
 def _is_json_contract_path(request: Request) -> bool:

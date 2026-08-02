@@ -30,7 +30,12 @@ class GitHubDatabaseStorage:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self.disabled = os.getenv("GATEWAY_DISABLE_REMOTE_BACKUP", "0") == "1" or settings.is_postgres
+        self.disabled = (
+            os.getenv("GATEWAY_DISABLE_REMOTE_BACKUP", "0") == "1"
+            or settings.is_postgres
+            or not settings.github_token
+            or settings.github_repository == "unknown/unknown"
+        )
         self.dirty = False
         self.last_error: str | None = None
         self.last_backup_at: str | None = None
@@ -186,10 +191,15 @@ class GitHubDatabaseStorage:
                 "parents": [],
             },
         )
-        ref_url = f"{self.base}/git/refs/heads/{settings.data_branch}"
-        existing = await self._request("GET", ref_url, allow_404=True)
+        # GitHub uses the singular /git/ref endpoint for reading one
+        # reference and the plural /git/refs endpoint for updating it. Using
+        # the plural path for GET made every backup after the first one look
+        # like a missing branch and then fail while trying to recreate it.
+        get_ref_url = f"{self.base}/git/ref/heads/{settings.data_branch}"
+        patch_ref_url = f"{self.base}/git/refs/heads/{settings.data_branch}"
+        existing = await self._request("GET", get_ref_url, allow_404=True)
         if existing:
-            await self._request("PATCH", ref_url, json={"sha": commit["sha"], "force": True})
+            await self._request("PATCH", patch_ref_url, json={"sha": commit["sha"], "force": True})
         else:
             await self._request(
                 "POST",
