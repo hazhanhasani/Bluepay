@@ -13,7 +13,7 @@ def read(path: str) -> str:
 def test_version_and_railway_readiness_contract():
     release = json.loads(read("release.json"))
     railway = json.loads(read("railway.json"))
-    assert release["version"] == "1.2.1"
+    assert release["version"] == "1.2.2"
     assert release["run_migrations"] is True
     assert railway["deploy"]["healthcheckPath"] == "/ready"
     main = read("app/main.py")

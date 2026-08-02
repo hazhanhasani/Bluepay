@@ -1,7 +1,7 @@
 {
-  "name": "BluePay Integration Core",
-  "version": "1.2.1",
-  "min_version": "1.1.0",
-  "description": "Integration-focused gateway with API, callbacks, SMS confirmation and manual invoices; commerce options and automation disabled.",
+  "name": "BluePay Integration Core Bugfix",
+  "version": "1.2.2",
+  "min_version": "1.2.1",
+  "description": "General stability and security bugfix release for backups, Telegram delivery, manual invoices, idempotency, expiry races, diagnostics, release ZIP validation and payment pages.",
   "run_migrations": true
 }

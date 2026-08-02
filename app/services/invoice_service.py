@@ -177,7 +177,7 @@ async def create_invoice(
         # or the old merchant-wide callback. Legacy/manual invoices keep the
         # merchant-level fallback for backward compatibility.
         callback_url=(callback_url if store_id is not None else callback_url or locked.callback_url),
-        return_url=return_url,
+        return_url=(return_url if store_id is not None else return_url or locked.return_url),
         callback_secret=(callback_secret if store_id is not None else callback_secret or locked.callback_secret),
         store_id=store_id,
         api_key_id=api_key_id,
@@ -296,8 +296,18 @@ async def create_wallet_topup_invoice(
 
 
 async def release_invoice_reservation(session: AsyncSession, invoice: Invoice, status: str) -> bool:
-    if invoice.status not in {"pending", "partially_paid"}:
+    # Re-read and lock the invoice before changing its final state. The expiry
+    # worker and an incoming bank SMS can otherwise observe ``pending`` at the
+    # same time and let expiry overwrite a payment that was just committed.
+    locked_invoice = await session.scalar(
+        select(Invoice)
+        .where(Invoice.id == invoice.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not locked_invoice or locked_invoice.status not in {"pending", "partially_paid"}:
         return False
+    invoice = locked_invoice
     merchant = await session.scalar(select(Merchant).where(Merchant.id == invoice.merchant_id).with_for_update())
     if not merchant:
         return False

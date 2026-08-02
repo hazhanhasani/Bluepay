@@ -13,11 +13,26 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.core.config import settings
 from app.db.base import Base
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _safe_error_text(value: str | None) -> str | None:
+    if not value:
+        return value
+    safe = value
+    for secret in (settings.bot_token, settings.github_token, settings.effective_telegram_webhook_secret):
+        if secret:
+            safe = safe.replace(str(secret), "[REDACTED]")
+    # Database URLs sometimes appear in driver errors. Mask credentials while
+    # retaining the host and error type needed for diagnostics.
+    import re
+    safe = re.sub(r"(\w+(?:\+\w+)?://)[^/@\s]+:[^/@\s]+@", r"\1[REDACTED]@", safe)
+    return safe[:2000]
 
 
 @dataclass(slots=True)
@@ -49,6 +64,7 @@ class RuntimeStatus:
     def public_payload(self) -> dict[str, Any]:
         payload = asdict(self)
         payload.pop("error_trace", None)
+        payload["last_error"] = _safe_error_text(payload.get("last_error"))
         return payload
 
 
