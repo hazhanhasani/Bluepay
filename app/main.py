@@ -121,47 +121,21 @@ async def housekeeping_worker() -> None:
 
 
 async def telegram_polling_worker() -> None:
-    """Run Telegram long polling as the reliable Railway default.
-
-    The worker always removes any webhook left by an older release before
-    calling getUpdates.  During a Railway rolling deployment the old and new
-    replicas may overlap briefly; Telegram can then report a polling conflict.
-    The loop retries until the old replica is gone, without requiring a manual
-    restart or a Railway variable.
-    """
+    """Run Telegram long polling as a self-healing delivery mode."""
 
     while True:
         try:
-            me = await bot.get_me()
-            if not me.id:
-                raise RuntimeError("Telegram getMe returned no bot id")
-
-            deleted = await bot.delete_webhook(drop_pending_updates=False)
-            if not deleted:
-                raise RuntimeError("Telegram rejected webhook deletion")
-
-            info = await bot.get_webhook_info()
-            if info.url:
-                raise RuntimeError(f"Telegram webhook is still active: {info.url}")
-
+            # Removing a stale/broken webhook is required before getUpdates can
+            # receive messages and callback_query button events.
+            await bot.delete_webhook(drop_pending_updates=False)
             runtime_status.telegram_mode = "polling"
             runtime_status.telegram_ok = True
-            runtime_status.last_error = None
             await dp.start_polling(
                 bot,
                 allowed_updates=telegram_allowed_updates(),
-                polling_timeout=20,
                 handle_signals=False,
                 close_bot_session=False,
             )
-
-            # start_polling normally runs until shutdown.  If it returns while
-            # the application is still alive, reconnect instead of leaving the
-            # bot silently inactive.
-            runtime_status.telegram_ok = False
-            runtime_status.telegram_mode = "polling-reconnecting"
-            runtime_status.last_error = "Telegram polling stopped unexpectedly"
-            await asyncio.sleep(2)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -175,9 +149,10 @@ async def telegram_polling_worker() -> None:
 async def telegram_delivery_supervisor() -> None:
     """Keep Telegram usable even when Railway webhook setup is unavailable.
 
-    Polling is the zero-configuration default.  Webhook is used only when
-    TELEGRAM_MODE=webhook is explicitly configured; if that setup fails once,
-    delivery immediately falls back to polling.
+    Webhook remains the preferred mode.  After three consecutive setup or
+    verification failures the service automatically falls back to long polling,
+    so /start, inline buttons and callback queries continue working without any
+    extra Railway variable.
     """
 
     webhook_failures = 0
@@ -198,12 +173,12 @@ async def telegram_delivery_supervisor() -> None:
                 f"telegram_delivery_setup_error attempt={webhook_failures} "
                 f"error={type(exc).__name__}: {exc}"
             )
-            if settings.use_telegram_webhook and webhook_failures >= 1:
+            if settings.use_telegram_webhook and webhook_failures >= 3:
                 print("telegram_delivery_fallback=polling")
                 runtime_status.telegram_mode = "polling-fallback"
                 await telegram_polling_worker()
                 return
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
 
 
 async def notify_startup_failure(exc: BaseException) -> None:
