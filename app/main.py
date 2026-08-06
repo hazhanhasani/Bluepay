@@ -76,10 +76,12 @@ async def expiration_worker() -> None:
 
 
 async def callback_outbox_worker() -> None:
-    await recover_stale_callback_locks()
-    runtime_status.callback_worker_ok = True
+    recovery_complete = False
     while True:
         try:
+            if not recovery_complete:
+                await recover_stale_callback_locks()
+                recovery_complete = True
             processed = await process_callback_outbox_batch(settings.callback_worker_batch_size)
             runtime_status.callback_worker_ok = True
             await asyncio.sleep(0.2 if processed else settings.callback_worker_interval_seconds)
@@ -118,6 +120,29 @@ async def telegram_polling_worker() -> None:
             runtime_status.telegram_ok = False
             print(f"telegram_worker_error={type(exc).__name__}: {exc}")
             await asyncio.sleep(5)
+
+
+async def telegram_delivery_supervisor() -> None:
+    """Configure Telegram independently from Railway's core HTTP readiness.
+
+    A temporary Telegram/API failure must not keep a database-valid release in
+    Railway's healthcheck loop forever.  The supervisor retries until webhook
+    delivery is configured, or continuously supervises polling mode.
+    """
+
+    while True:
+        try:
+            telegram_task = await configure_telegram_delivery()
+            if telegram_task is not None:
+                await telegram_task
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            runtime_status.telegram_ok = False
+            runtime_status.telegram_mode = "retrying"
+            print(f"telegram_delivery_setup_error={type(exc).__name__}: {exc}")
+            await asyncio.sleep(15)
 
 
 async def notify_startup_failure(exc: BaseException) -> None:
@@ -190,11 +215,9 @@ async def lifespan(app: FastAPI):
             await session.commit()
         runtime_status.settings_ok = True
 
-        telegram_task = await configure_telegram_delivery()
-        if telegram_task:
-            tasks.append(telegram_task)
         tasks.extend(
             [
+                asyncio.create_task(telegram_delivery_supervisor(), name="telegram-delivery"),
                 asyncio.create_task(expiration_worker(), name="invoice-expiration"),
                 asyncio.create_task(callback_outbox_worker(), name="callback-outbox"),
                 asyncio.create_task(housekeeping_worker(), name="housekeeping"),
@@ -280,7 +303,11 @@ async def liveness():
 @app.get("/ready", include_in_schema=False)
 async def readiness():
     ok = await lightweight_readiness_probe(engine)
-    status = 200 if ok and runtime_status.telegram_ok and runtime_status.callback_worker_ok else 503
+    # Railway should promote a release when the HTTP process, PostgreSQL,
+    # migrations, schema and runtime settings are ready. Telegram and callback
+    # workers are reported as component health, but are retried in background
+    # and must not hold deployment promotion hostage to a transient dependency.
+    status = 200 if ok and runtime_status.schema_ok and runtime_status.settings_ok else 503
     return JSONResponse(
         status_code=status,
         content={

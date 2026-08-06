@@ -207,7 +207,7 @@ Connector secrets and headers are encrypted with the application encryption key.
 Alembic revision `20260801_1200` creates the new commerce tables and adds invoice links for customer, campaign, A/B variant, discount, affiliate and subscription. The migration is additive and its downgrade intentionally retains financial and commerce history.
 
 
-## Railway PostgreSQL production variables (v1.2.3)
+## Railway PostgreSQL production variables (v1.2.4)
 
 Name the database service `Postgres`, then configure the BluePay service with:
 

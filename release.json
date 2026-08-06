@@ -1,7 +1,7 @@
 {
-  "name": "BluePay PostgreSQL Production Guard",
-  "version": "1.2.3",
+  "name": "BluePay Railway PostgreSQL Healthcheck Recovery",
+  "version": "1.2.4",
   "min_version": "1.2.2",
-  "description": "Adds strict PostgreSQL enforcement, bounded startup retries, configurable pooling, and an exact Railway production variable template.",
+  "description": "Fixes PostgreSQL migration transaction aborts caused by duplicate invoice indexes and prevents transient Telegram/callback worker failures from blocking Railway deployment healthchecks.",
   "run_migrations": true
 }

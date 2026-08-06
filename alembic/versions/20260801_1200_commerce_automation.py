@@ -45,6 +45,15 @@ def upgrade() -> None:
         sa.Column("affiliate_id", sa.BigInteger(), nullable=True),
         sa.Column("subscription_id", sa.BigInteger(), nullable=True),
     ])
+    # Base.metadata.create_all() may already have created these indexes on a
+    # fresh PostgreSQL database.  Do not rely on catching duplicate-index
+    # errors: PostgreSQL marks the entire migration transaction as aborted
+    # after such an error, even when Python catches the exception.
+    existing_indexes = {
+        item.get("name")
+        for item in inspect(bind).get_indexes("invoices")
+        if item.get("name")
+    }
     for name, column in [
         ("ix_invoices_customer_id", "customer_id"),
         ("ix_invoices_payment_link_id", "payment_link_id"),
@@ -57,10 +66,9 @@ def upgrade() -> None:
         ("ix_invoices_affiliate_id", "affiliate_id"),
         ("ix_invoices_subscription_id", "subscription_id"),
     ]:
-        try:
+        if name not in existing_indexes:
             op.create_index(name, "invoices", [column], unique=False)
-        except Exception:
-            pass
+            existing_indexes.add(name)
 
 
 def downgrade() -> None:
