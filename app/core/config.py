@@ -4,16 +4,16 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """BluePay runtime configuration.
+    """Runtime settings with backward-compatible zero-config defaults.
 
-    Railway's ``DATABASE_URL`` is optional for local development, but when it
-    is present PostgreSQL becomes the primary and only writable datastore.
-    Both Railway's public and private PostgreSQL URL formats are accepted.
+    BOT_TOKEN and GITHUB_TOKEN remain sufficient for SQLite mode. Setting a
+    Railway DATABASE_URL transparently upgrades the primary database to
+    PostgreSQL without changing the API or bot configuration.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -21,7 +21,13 @@ class Settings(BaseSettings):
     bot_token: str = Field(alias="BOT_TOKEN")
     github_token: str | None = Field(default=None, alias="GITHUB_TOKEN")
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
-    database_private_url: str | None = Field(default=None, alias="DATABASE_PRIVATE_URL")
+    db_require_postgres: bool = Field(default=False, alias="DB_REQUIRE_POSTGRES")
+    db_connect_retries: int = Field(default=20, alias="DB_CONNECT_RETRIES")
+    db_connect_retry_seconds: float = Field(default=3.0, alias="DB_CONNECT_RETRY_SECONDS")
+    db_pool_size: int = Field(default=5, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
+    db_pool_timeout_seconds: int = Field(default=30, alias="DB_POOL_TIMEOUT_SECONDS")
+    db_pool_recycle_seconds: int = Field(default=300, alias="DB_POOL_RECYCLE_SECONDS")
     explicit_base_url: str = Field(default="", alias="BASE_URL")
     port: int = Field(default=8080, alias="PORT")
     default_fee_rial: int = Field(default=20_000, alias="DEFAULT_FEE_RIAL")
@@ -31,17 +37,46 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", alias="APP_ENV")
     callback_worker_interval_seconds: int = Field(default=2, alias="CALLBACK_WORKER_INTERVAL_SECONDS")
     callback_worker_batch_size: int = Field(default=30, alias="CALLBACK_WORKER_BATCH_SIZE")
-    telegram_mode: str = Field(default="polling", alias="TELEGRAM_MODE")
+    telegram_mode: str = Field(default="auto", alias="TELEGRAM_MODE")
     telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     sms_hmac_max_age_seconds: int = Field(default=300, alias="SMS_HMAC_MAX_AGE_SECONDS")
     release_staging_branch: str = Field(default="bluepay-staging", alias="RELEASE_STAGING_BRANCH")
     startup_fail_open: bool = Field(default=False, alias="STARTUP_FAIL_OPEN")
-    auto_import_legacy_sqlite: bool = Field(default=True, alias="AUTO_IMPORT_LEGACY_SQLITE")
 
     @field_validator("explicit_base_url", mode="before")
     @classmethod
     def normalize_base_url(cls, value: str | None) -> str:
         return (value or "").strip().rstrip("/")
+
+    @field_validator(
+        "db_connect_retries",
+        "db_pool_size",
+        "db_max_overflow",
+        "db_pool_timeout_seconds",
+        "db_pool_recycle_seconds",
+    )
+    @classmethod
+    def validate_non_negative_database_number(cls, value: int) -> int:
+        return max(0, int(value))
+
+    @field_validator("db_connect_retry_seconds")
+    @classmethod
+    def validate_database_retry_delay(cls, value: float) -> float:
+        return max(0.25, min(float(value), 60.0))
+
+    @model_validator(mode="after")
+    def enforce_production_database(self) -> "Settings":
+        raw = (self.database_url or "").strip()
+        if self.db_require_postgres and not raw:
+            raise ValueError(
+                "DB_REQUIRE_POSTGRES=true but DATABASE_URL is missing. "
+                "Set DATABASE_URL=${{Postgres.DATABASE_URL}} on the BluePay service."
+            )
+        if self.db_require_postgres:
+            normalized = raw.replace("postgres://", "postgresql://", 1)
+            if not normalized.startswith(("postgresql://", "postgresql+asyncpg://")):
+                raise ValueError("DB_REQUIRE_POSTGRES=true requires a PostgreSQL DATABASE_URL")
+        return self
 
     @property
     def github_repository(self) -> str:
@@ -52,6 +87,8 @@ class Settings(BaseSettings):
         fallback = os.getenv("GITHUB_REPOSITORY", "").strip()
         if fallback and "/" in fallback:
             return fallback
+        # PostgreSQL mode does not require GitHub database storage, but update
+        # publishing can still use the repository metadata when available.
         return fallback or "unknown/unknown"
 
     @property
@@ -73,33 +110,14 @@ class Settings(BaseSettings):
         return self.data_dir / "gateway.db"
 
     @property
-    def legacy_database_path(self) -> Path:
-        return self.data_dir / "legacy-gateway.db"
-
-    @property
-    def raw_database_url(self) -> str:
-        # DATABASE_URL is the preferred Railway reference. DATABASE_PRIVATE_URL
-        # is accepted as a fallback for projects that expose that variable.
-        return (self.database_url or self.database_private_url or "").strip()
-
-    @property
     def effective_database_url(self) -> str:
-        raw = self.raw_database_url
+        raw = (self.database_url or "").strip()
         if not raw:
             return f"sqlite+aiosqlite:///{self.database_path}"
-        if "${{" in raw or "}}" in raw:
-            raise ValueError(
-                "DATABASE_URL was not resolved by Railway. Set it to "
-                "${{Postgres.DATABASE_URL}} from the BluePay service Variables page."
-            )
         if raw.startswith("postgres://"):
             raw = "postgresql://" + raw[len("postgres://"):]
         if raw.startswith("postgresql://"):
             raw = "postgresql+asyncpg://" + raw[len("postgresql://"):]
-        elif raw.startswith("postgresql+psycopg://"):
-            raw = "postgresql+asyncpg://" + raw[len("postgresql+psycopg://"):]
-        if not raw.startswith(("postgresql+asyncpg://", "sqlite+aiosqlite:///")):
-            raise ValueError("DATABASE_URL must be a PostgreSQL URL supplied by Railway")
         return raw
 
     @property
@@ -109,10 +127,6 @@ class Settings(BaseSettings):
     @property
     def is_postgres(self) -> bool:
         return self.effective_database_url.startswith("postgresql+asyncpg://")
-
-    @property
-    def database_mode(self) -> str:
-        return "postgresql" if self.is_postgres else "sqlite"
 
     @property
     def base_url(self) -> str:
@@ -139,7 +153,7 @@ class Settings(BaseSettings):
 
     @property
     def use_telegram_webhook(self) -> bool:
-        mode = (self.telegram_mode or "polling").strip().lower()
+        mode = (self.telegram_mode or "auto").strip().lower()
         if mode == "webhook":
             return True
         if mode == "polling":

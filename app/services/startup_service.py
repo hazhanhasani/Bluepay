@@ -26,9 +26,6 @@ class RuntimeStatus:
     ready: bool = False
     maintenance: bool = True
     database_ok: bool = False
-    database_mode: str = "starting"
-    legacy_import_status: str | None = None
-    legacy_import_rows: dict[str, int] | None = None
     migrations_ok: bool = False
     schema_ok: bool = False
     settings_ok: bool = False
@@ -112,6 +109,44 @@ async def verify_database_and_schema(engine: AsyncEngine) -> None:
     runtime_status.schema_ok = True
     runtime_status.migrations_ok = True
     runtime_status.last_checked_at = utcnow().isoformat()
+
+
+
+
+async def prepare_database_with_retry(engine: AsyncEngine) -> None:
+    """Run migrations and schema checks with bounded retries.
+
+    Railway may start the application a few seconds before the Postgres service
+    accepts connections. Retrying here avoids a false failed deployment while
+    still keeping /ready unhealthy until the database is fully usable.
+    """
+    from app.core.config import settings
+
+    attempts = max(1, int(settings.db_connect_retries) + 1)
+    delay = max(0.25, float(settings.db_connect_retry_seconds))
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            await run_alembic_upgrade()
+            runtime_status.migrations_ok = True
+            await verify_database_and_schema(engine)
+            return
+        except Exception as exc:
+            last_error = exc
+            runtime_status.database_ok = False
+            runtime_status.migrations_ok = False
+            runtime_status.schema_ok = False
+            runtime_status.last_error = f"{type(exc).__name__}: {exc}"
+            runtime_status.last_checked_at = utcnow().isoformat()
+            if attempt >= attempts:
+                raise
+            print(
+                f"database_startup_retry attempt={attempt}/{attempts - 1} "
+                f"delay_seconds={delay:g} error={type(exc).__name__}: {exc}"
+            )
+            await asyncio.sleep(delay)
+    if last_error is not None:
+        raise last_error
 
 
 async def lightweight_readiness_probe(engine: AsyncEngine) -> bool:

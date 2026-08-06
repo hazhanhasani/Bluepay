@@ -205,3 +205,40 @@ Connector secrets and headers are encrypted with the application encryption key.
 ### Commerce migration
 
 Alembic revision `20260801_1200` creates the new commerce tables and adds invoice links for customer, campaign, A/B variant, discount, affiliate and subscription. The migration is additive and its downgrade intentionally retains financial and commerce history.
+
+
+## Railway PostgreSQL production variables (v1.2.3)
+
+Name the database service `Postgres`, then configure the BluePay service with:
+
+```env
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+DB_REQUIRE_POSTGRES=true
+DB_CONNECT_RETRIES=30
+DB_CONNECT_RETRY_SECONDS=3
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=10
+DB_POOL_TIMEOUT_SECONDS=30
+DB_POOL_RECYCLE_SECONDS=300
+GATEWAY_DISABLE_REMOTE_BACKUP=1
+STARTUP_FAIL_OPEN=false
+```
+
+Do not add `DATABASE_URL` until the existing SQLite data has been copied. For
+the one-time copy, add a temporary variable:
+
+```env
+MIGRATION_DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
+
+Then run:
+
+```bash
+python scripts/migrate_sqlite_to_postgres.py \
+  --source /app/runtime/gateway.db \
+  --database-url "$MIGRATION_DATABASE_URL" \
+  --confirm-empty-target
+```
+
+After success, remove `MIGRATION_DATABASE_URL`, add the production
+`DATABASE_URL` reference, and redeploy.

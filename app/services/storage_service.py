@@ -99,40 +99,6 @@ class GitHubDatabaseStorage:
         except sqlite3.DatabaseError:
             return False
 
-    async def restore_legacy_snapshot_for_postgres(self) -> Path | None:
-        """Download the previous encrypted SQLite snapshot for one-time import.
-
-        PostgreSQL mode disables normal SQLite backup/restore, but on the first
-        PostgreSQL deployment we still need a safe source for migrating existing
-        merchants, cards, settings and invoices. No PostgreSQL data is overwritten.
-        """
-        if not settings.is_postgres or not settings.auto_import_legacy_sqlite:
-            return None
-        if not settings.github_token or self.repository == "unknown/unknown":
-            return None
-        destination = settings.legacy_database_path
-        if self._sqlite_is_valid(destination):
-            return destination
-        async with self._lock:
-            encrypted = await self._read_backup_blob()
-            if encrypted is None:
-                return None
-            try:
-                plain = self.cipher.decrypt(encrypted)
-            except InvalidToken as exc:
-                raise RuntimeError(
-                    "Legacy SQLite backup exists but cannot be decrypted with the current BOT_TOKEN."
-                ) from exc
-            tmp = destination.with_suffix(".restore.tmp")
-            tmp.write_bytes(plain)
-            if not self._sqlite_is_valid(tmp):
-                tmp.unlink(missing_ok=True)
-                raise RuntimeError("Legacy GitHub snapshot is not a valid SQLite database")
-            os.replace(tmp, destination)
-            self.last_restore_at = datetime.now(timezone.utc).isoformat()
-            self.last_error = None
-            return destination
-
     async def restore_if_available(self) -> bool:
         """Restore the encrypted snapshot before SQLAlchemy opens the database."""
         if self.disabled:
