@@ -35,6 +35,7 @@ from app.services.callback_outbox_service import process_callback_outbox_batch, 
 from app.services.idempotency_service import cleanup_expired_idempotency
 from app.services.invoice_service import release_invoice_reservation
 from app.services.migration_service import run_runtime_migrations
+from app.services.postgres_bootstrap_service import ensure_database_tables, import_legacy_sqlite_if_empty
 from app.services.settings_service import ensure_runtime_settings
 from app.services.startup_service import (
     lightweight_readiness_probe,
@@ -146,19 +147,19 @@ async def notify_startup_failure(exc: BaseException) -> None:
 
 
 async def configure_telegram_delivery() -> asyncio.Task | None:
+    """Start Telegram delivery in resilient polling mode.
+
+    Railway deployments may leave Telegram pointing at a stale webhook while the
+    new release is already healthy. Polling explicitly removes any old webhook
+    inside ``telegram_polling_worker`` and resumes updates without requiring a
+    second environment variable or manual Bot API call.
+    """
     me = await bot.get_me()
     if not me.id:
         raise RuntimeError("Telegram getMe returned no bot id")
-    if settings.use_telegram_webhook:
-        await bot.set_webhook(
-            url=settings.telegram_webhook_url,
-            secret_token=settings.effective_telegram_webhook_secret,
-            allowed_updates=dp.resolve_used_update_types(),
-            drop_pending_updates=False,
-        )
-        runtime_status.telegram_mode = "webhook"
-        runtime_status.telegram_ok = True
-        return None
+
+    runtime_status.telegram_mode = "polling-starting"
+    runtime_status.telegram_ok = True
     return asyncio.create_task(telegram_polling_worker(), name="telegram-polling")
 
 
@@ -168,21 +169,39 @@ async def lifespan(app: FastAPI):
     runtime_status.maintenance = True
     runtime_status.ready = False
     try:
-        # SQLite restores remain best-effort; PostgreSQL does not use GitHub DB snapshots.
+        runtime_status.database_mode = settings.database_mode
+        legacy_sqlite_path = None
         try:
-            await asyncio.wait_for(storage.restore_if_available(), timeout=15)
+            if settings.is_postgres:
+                legacy_sqlite_path = await asyncio.wait_for(
+                    storage.restore_legacy_snapshot_for_postgres(), timeout=20
+                )
+            else:
+                await asyncio.wait_for(storage.restore_if_available(), timeout=15)
         except asyncio.TimeoutError:
-            storage.last_error = "TimeoutError: GitHub database restore exceeded 15 seconds"
+            storage.last_error = "TimeoutError: database restore exceeded the startup limit"
             print(f"database_restore_error={storage.last_error}")
         except Exception as exc:
+            # A missing legacy snapshot must not prevent a fresh PostgreSQL DB
+            # from starting. Actual DB connection/migration errors still fail.
             storage.last_error = f"{type(exc).__name__}: {exc}"
             print(f"database_restore_error={storage.last_error}")
 
-        # Alembic is the primary migration mechanism. The legacy runtime
-        # migrator remains as an idempotent compatibility layer for old ZIPs.
+        # Fresh Railway PostgreSQL databases are bootstrapped automatically.
+        # create_all(checkfirst) is non-destructive; Alembic then records and
+        # applies versioned upgrades, followed by compatibility migrations.
+        await ensure_database_tables(engine)
         await run_alembic_upgrade()
         runtime_status.migrations_ok = True
         await run_runtime_migrations(engine)
+
+        if settings.is_postgres and settings.auto_import_legacy_sqlite:
+            import_result = await import_legacy_sqlite_if_empty(engine, legacy_sqlite_path)
+            runtime_status.legacy_import_status = import_result.reason
+            runtime_status.legacy_import_rows = import_result.rows
+            if import_result.imported:
+                print(f"legacy_sqlite_imported={import_result.rows}")
+
         await verify_database_and_schema(engine)
 
         async with SessionLocal() as session:
@@ -199,9 +218,10 @@ async def lifespan(app: FastAPI):
                 asyncio.create_task(expiration_worker(), name="invoice-expiration"),
                 asyncio.create_task(callback_outbox_worker(), name="callback-outbox"),
                 asyncio.create_task(housekeeping_worker(), name="housekeeping"),
-                asyncio.create_task(storage.retry_worker(), name="database-backup-retry"),
             ]
         )
+        if not settings.is_postgres:
+            tasks.append(asyncio.create_task(storage.retry_worker(), name="database-backup-retry"))
         runtime_status.backup_worker_ok = True
         app.state.background_tasks = tasks
         runtime_status.maintenance = False

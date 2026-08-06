@@ -11,11 +11,13 @@ engine_kwargs: dict = {
     "echo": False,
 }
 if settings.is_postgres:
+    # Railway PostgreSQL connections are pooled and verified before checkout.
     engine_kwargs.update({
         "pool_size": 5,
         "max_overflow": 10,
         "pool_timeout": 30,
         "pool_recycle": 300,
+        "connect_args": {"server_settings": {"application_name": "bluepay"}},
     })
 else:
     engine_kwargs["connect_args"] = {"timeout": 30}
@@ -26,4 +28,8 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise

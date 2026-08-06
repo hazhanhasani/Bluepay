@@ -1,11 +1,3 @@
-
-## 1.2.2 — UTC invoice timer fix
-
-- Payment countdown is now based on server-authoritative remaining seconds, not the phone clock.
-- SQLite naive timestamps are normalized to UTC before API or template output.
-- All invoice timestamps are returned with a trailing `Z`.
-- Fresh invoices no longer appear expired on Iran/Italy time zones.
-
 # BluePay v1.2.1 — Integration Core
 
 بلوپی یک زیرساخت اتصال پرداخت برای سایت‌ها و ربات‌ها است. تمرکز این نسخه روی صدور فاکتور از API یا ربات، تأیید پیامک بانکی، Callback امضاشده، مدیریت فروشگاه و کارت مقصد، کیف پول و گزارش‌ها است.
@@ -30,3 +22,13 @@
 - API و صفحات محصولات، لینک دائمی، اشتراک، تخفیف، شعبه و صندوق دیگر Mount نمی‌شوند.
 - ساخت فاکتور دستی به‌عنوان جریان اصلی داخل ربات باقی ماند.
 - جدول‌ها و Migrationهای نسخه 1.2.0 برای سازگاری دیتابیس حفظ شده‌اند و داده‌ای حذف نمی‌شود.
+
+## PostgreSQL خودکار در نسخه 1.2.2
+
+در Railway فقط متغیر زیر را به سرویس BluePay بدهید:
+
+```text
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+```
+
+در Startup، BluePay به ترتیب اتصال را آزمایش می‌کند، تمام جدول‌های مفقود را می‌سازد، Alembic و Migrationهای سازگاری را اجرا می‌کند و همه عملیات بعدی را مستقیماً در PostgreSQL ذخیره می‌کند. اگر PostgreSQL خالی و بکاپ رمزنگاری‌شده SQLite قبلی موجود باشد، داده‌های اصلی به‌صورت یک‌باره منتقل می‌شوند. دیتابیس دارای داده هرگز بازنویسی نمی‌شود.

@@ -26,6 +26,9 @@ class RuntimeStatus:
     ready: bool = False
     maintenance: bool = True
     database_ok: bool = False
+    database_mode: str = "starting"
+    legacy_import_status: str | None = None
+    legacy_import_rows: dict[str, int] | None = None
     migrations_ok: bool = False
     schema_ok: bool = False
     settings_ok: bool = False

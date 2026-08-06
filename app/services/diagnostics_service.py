@@ -18,7 +18,8 @@ async def collect_diagnostics(*, test_github: bool = True, test_telegram=None) -
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "version": None,
         "base_url": settings.base_url,
-        "database_mode": "postgresql" if settings.is_postgres else "sqlite",
+        "database_mode": settings.database_mode,
+        "database_persistent": settings.is_postgres,
         "runtime": runtime_status.public_payload(),
         "checks": {},
     }

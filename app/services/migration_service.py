@@ -49,17 +49,6 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
             "callback_status": "VARCHAR(24) NOT NULL DEFAULT 'not_attempted'",
             "callback_last_result": "VARCHAR(160)",
             "callback_attempted_at": "DATETIME",
-            "customer_id": "BIGINT",
-            "payment_link_id": "BIGINT",
-            "campaign_id": "BIGINT",
-            "branch_id": "BIGINT",
-            "received_amount_rial": "BIGINT NOT NULL DEFAULT 0",
-            "completion_mode": "VARCHAR(20) NOT NULL DEFAULT 'exact'",
-            "source_channel": "VARCHAR(40)",
-            "ab_variant_id": "BIGINT",
-            "discount_id": "BIGINT",
-            "affiliate_id": "BIGINT",
-            "subscription_id": "BIGINT",
         }
         for name, ddl in invoice_additions.items():
             changed |= await _sqlite_add(connection, "invoices", invoice_columns, name, ddl)
@@ -73,16 +62,6 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
             ("ix_invoices_environment", "environment"),
             ("ix_invoices_risk_status", "risk_status"),
             ("ix_invoices_callback_status", "callback_status"),
-            ("ix_invoices_customer_id", "customer_id"),
-            ("ix_invoices_payment_link_id", "payment_link_id"),
-            ("ix_invoices_campaign_id", "campaign_id"),
-            ("ix_invoices_branch_id", "branch_id"),
-            ("ix_invoices_completion_mode", "completion_mode"),
-            ("ix_invoices_source_channel", "source_channel"),
-            ("ix_invoices_ab_variant_id", "ab_variant_id"),
-            ("ix_invoices_discount_id", "discount_id"),
-            ("ix_invoices_affiliate_id", "affiliate_id"),
-            ("ix_invoices_subscription_id", "subscription_id"),
         ]:
             await connection.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON invoices ({col})"))
         await connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_client_order ON invoices (store_id, client_order_id) WHERE store_id IS NOT NULL AND client_order_id IS NOT NULL"))
@@ -125,17 +104,6 @@ async def _run_sqlite_migrations(engine: AsyncEngine) -> bool:
         changed |= (duplicate_key_update.rowcount or 0) > 0
         await connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_store_one_active_api_key ON store_api_keys (store_id) WHERE is_active = 1"))
 
-        update_columns = await _sqlite_columns(connection, "update_logs")
-        if update_columns:
-            for name, ddl in {
-                "previous_commit_sha": "VARCHAR(80)",
-                "package_sha256": "VARCHAR(64)",
-                "validation_json": "TEXT",
-                "rollback_of_update_id": "INTEGER",
-            }.items():
-                changed |= await _sqlite_add(connection, "update_logs", update_columns, name, ddl)
-            await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_update_logs_rollback_of_update_id ON update_logs (rollback_of_update_id)"))
-
         # Protect pending invoices created by older versions.
         await connection.execute(text("INSERT OR IGNORE INTO amount_reservations (card_id, invoice_token, payable_amount_rial, expires_at, created_at, updated_at) SELECT card_id, token, payable_amount_rial, expires_at, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM invoices WHERE status = 'pending'"))
     return changed
@@ -168,17 +136,6 @@ async def _run_postgres_migrations(engine: AsyncEngine) -> bool:
         "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS callback_status VARCHAR(24) NOT NULL DEFAULT 'not_attempted'",
         "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS callback_last_result VARCHAR(160)",
         "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS callback_attempted_at TIMESTAMPTZ",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS payment_link_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS campaign_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS branch_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS received_amount_rial BIGINT NOT NULL DEFAULT 0",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS completion_mode VARCHAR(20) NOT NULL DEFAULT 'exact'",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source_channel VARCHAR(40)",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ab_variant_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS affiliate_id BIGINT",
-        "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS subscription_id BIGINT",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS balance_before_rial BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reserved_before_rial BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reserved_after_rial BIGINT NOT NULL DEFAULT 0",
@@ -186,29 +143,6 @@ async def _run_postgres_migrations(engine: AsyncEngine) -> bool:
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reference_id VARCHAR(120)",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS metadata_json TEXT",
         "ALTER TABLE wallet_ledger ADD COLUMN IF NOT EXISTS reversed_entry_id BIGINT",
-        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS previous_commit_sha VARCHAR(80)",
-        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS package_sha256 VARCHAR(64)",
-        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS validation_json TEXT",
-        "ALTER TABLE update_logs ADD COLUMN IF NOT EXISTS rollback_of_update_id INTEGER",
-        "CREATE INDEX IF NOT EXISTS ix_store_api_keys_is_legacy ON store_api_keys (is_legacy)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_idempotency_key ON invoices (idempotency_key)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_environment ON invoices (environment)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_risk_status ON invoices (risk_status)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_callback_status ON invoices (callback_status)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_customer_id ON invoices (customer_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_payment_link_id ON invoices (payment_link_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_campaign_id ON invoices (campaign_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_branch_id ON invoices (branch_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_completion_mode ON invoices (completion_mode)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_source_channel ON invoices (source_channel)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_ab_variant_id ON invoices (ab_variant_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_discount_id ON invoices (discount_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_affiliate_id ON invoices (affiliate_id)",
-        "CREATE INDEX IF NOT EXISTS ix_invoices_subscription_id ON invoices (subscription_id)",
-        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reference_type ON wallet_ledger (reference_type)",
-        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reference_id ON wallet_ledger (reference_id)",
-        "CREATE INDEX IF NOT EXISTS ix_wallet_ledger_reversed_entry_id ON wallet_ledger (reversed_entry_id)",
-        "CREATE INDEX IF NOT EXISTS ix_update_logs_rollback_of_update_id ON update_logs (rollback_of_update_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_client_order ON invoices (store_id, client_order_id) WHERE store_id IS NOT NULL AND client_order_id IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_store_idempotency ON invoices (store_id, idempotency_key) WHERE store_id IS NOT NULL AND idempotency_key IS NOT NULL",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_store_one_active_api_key ON store_api_keys (store_id) WHERE is_active = TRUE",

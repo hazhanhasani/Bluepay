@@ -1,3 +1,0 @@
-{
-  "tests/test_unique_amount.py::test_same_base_amount_gets_distinct_payable_amounts": true
-}

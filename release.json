@@ -1,7 +1,7 @@
 {
-  "name": "BluePay UTC Invoice Timer Fix",
+  "name": "BluePay PostgreSQL Auto Bootstrap",
   "version": "1.2.2",
-  "min_version": "1.2.1",
-  "description": "Fixes fresh invoices showing an expired timer on non-UTC devices by using server-authoritative UTC countdown values.",
+  "min_version": "1.1.0",
+  "description": "Automatic Railway PostgreSQL connection, table creation, migrations and safe one-time legacy SQLite import.",
   "run_migrations": true
 }

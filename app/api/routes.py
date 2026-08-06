@@ -20,7 +20,6 @@ from app.api.errors import error_response
 from app.api.schemas import (CreateInvoiceRequest, SandboxCreateInvoiceRequest, SandboxSimulationRequest, SmsDeviceCreateRequest, SmsDevicePolicyRequest, StoreSecurityRequest, TeamMemberRequest)
 from app.core.config import settings
 from app.core.security import decrypt_text
-from app.core.datetime_utils import as_utc, iso_utc_z, remaining_seconds
 from app.core.urls import validate_public_https_url
 from app.db.session import get_session
 from app.models import Invoice, Merchant, MerchantTeamMember, PaymentEvent, SandboxInvoice, SmsDevice, SmsTransaction, Store
@@ -97,8 +96,8 @@ def invoice_payload(invoice: Invoice) -> dict:
         "subscription_id": invoice.subscription_id,
         "payment_url": f"{settings.base_url}/pay/{invoice.token}",
         "return_url": invoice.return_url,
-        "expires_at": iso_utc_z(invoice.expires_at),
-        "paid_at": iso_utc_z(invoice.paid_at),
+        "expires_at": invoice.expires_at.isoformat(),
+        "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
         "reference_number": invoice.reference_number,
         "store_id": invoice.store_id,
         "api_key_id": invoice.api_key_id,
@@ -694,7 +693,7 @@ async def api_create_sandbox_invoice(
             "amount_rial": invoice.amount_rial,
             "payment_url": f"{settings.base_url}/sandbox/pay/{invoice.token}",
             "simulate_url": f"{settings.base_url}/api/v1/sandbox/invoices/{invoice.token}/simulate",
-            "expires_at": iso_utc_z(invoice.expires_at),
+            "expires_at": invoice.expires_at.isoformat(),
             "store_id": context.store.id,
             "store_code": context.store.code,
         }
@@ -739,8 +738,8 @@ async def api_sandbox_invoice_status(
         "amount_rial": invoice.amount_rial,
         "reference_number": invoice.reference_number,
         "callback_status": invoice.callback_status,
-        "expires_at": iso_utc_z(invoice.expires_at),
-        "paid_at": iso_utc_z(invoice.paid_at),
+        "expires_at": invoice.expires_at.isoformat(),
+        "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
     }
 
 
@@ -1149,8 +1148,10 @@ async def public_invoice_status(token: str, session: AsyncSession = Depends(get_
     if not invoice:
         raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
     now = datetime.now(timezone.utc)
-    expires_at = as_utc(invoice.expires_at)
-    if invoice.status in {"pending", "partially_paid"} and expires_at is not None and expires_at <= now:
+    expires_at = invoice.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
     return {
@@ -1159,9 +1160,6 @@ async def public_invoice_status(token: str, session: AsyncSession = Depends(get_
         "received_amount_rial": int(invoice.received_amount_rial or 0),
         "remaining_amount_rial": max(0, invoice.payable_amount_rial - int(invoice.received_amount_rial or 0)),
         "completion_mode": invoice.completion_mode,
-        "expires_at": iso_utc_z(expires_at),
-        "server_time": iso_utc_z(now),
-        "remaining_seconds": remaining_seconds(expires_at, now=now),
     }
 
 
@@ -1172,8 +1170,10 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
         return templates.TemplateResponse("not_found.html", {"request": request}, status_code=404)
 
     now = datetime.now(timezone.utc)
-    expires_at = as_utc(invoice.expires_at)
-    if invoice.status in {"pending", "partially_paid"} and expires_at is not None and expires_at <= now:
+    expires_at = invoice.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
 
@@ -1228,9 +1228,6 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
             "bank_name": bank_label(invoice.card.bank_code),
             "option_profile": option_profile,
             "verification": verification,
-            "expires_at_utc": iso_utc_z(expires_at),
-            "server_time_utc": iso_utc_z(now),
-            "remaining_seconds": remaining_seconds(expires_at, now=now),
         },
     )
 
