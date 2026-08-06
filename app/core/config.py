@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     environment: str = Field(default="production", alias="APP_ENV")
     callback_worker_interval_seconds: int = Field(default=2, alias="CALLBACK_WORKER_INTERVAL_SECONDS")
     callback_worker_batch_size: int = Field(default=30, alias="CALLBACK_WORKER_BATCH_SIZE")
-    telegram_mode: str = Field(default="auto", alias="TELEGRAM_MODE")
+    telegram_mode: str = Field(default="polling", alias="TELEGRAM_MODE")
     telegram_webhook_secret: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET")
     sms_hmac_max_age_seconds: int = Field(default=300, alias="SMS_HMAC_MAX_AGE_SECONDS")
     release_staging_branch: str = Field(default="bluepay-staging", alias="RELEASE_STAGING_BRANCH")
@@ -153,12 +153,17 @@ class Settings(BaseSettings):
 
     @property
     def use_telegram_webhook(self) -> bool:
-        mode = (self.telegram_mode or "auto").strip().lower()
-        if mode == "webhook":
-            return True
-        if mode == "polling":
-            return False
-        return self.base_url.startswith("https://")
+        """Enable webhook only when it is explicitly requested.
+
+        Railway rolling deploys and generated domains can temporarily leave a
+        webhook pointing at an old/unready replica.  Polling is therefore the
+        zero-configuration default for a single-replica BluePay service.  The
+        legacy value ``auto`` is intentionally treated as polling so existing
+        installations recover without adding or changing a variable.
+        """
+
+        mode = (self.telegram_mode or "polling").strip().lower()
+        return mode == "webhook"
 
 
 @lru_cache

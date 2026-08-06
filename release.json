@@ -1,7 +1,7 @@
 {
-  "name": "BluePay Telegram Buttons Recovery",
-  "version": "1.2.5",
-  "min_version": "1.2.4",
-  "description": "Restores Telegram inline button delivery with explicit callback_query subscriptions, verified webhook registration, and automatic polling fallback.",
-  "run_migrations": true
+  "name": "BluePay PostgreSQL SMS Confirmation Hotfix",
+  "version": "1.2.7",
+  "min_version": "1.2.6",
+  "description": "Fixes PostgreSQL SMS payment confirmation by locking only the invoice row instead of applying FOR UPDATE to a nullable outer join.",
+  "run_migrations": false
 }
