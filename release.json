@@ -1,7 +1,7 @@
 {
-  "name": "BluePay Telegram Buttons Recovery",
-  "version": "1.2.5",
-  "min_version": "1.2.4",
-  "description": "Restores Telegram inline button delivery with explicit callback_query subscriptions, verified webhook registration, and automatic polling fallback.",
+  "name": "BluePay Telegram Polling Recovery",
+  "version": "1.2.6",
+  "min_version": "1.2.5",
+  "description": "Restores Telegram /start and inline buttons by making self-healing long polling the zero-configuration Railway default, removing stale webhooks, and retrying rolling-deploy conflicts automatically.",
   "run_migrations": true
 }
