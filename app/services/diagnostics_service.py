@@ -13,38 +13,6 @@ from app.services.startup_service import runtime_status
 from app.services.storage_service import storage
 
 
-def _masked_webhook_url(url: str | None) -> str | None:
-    if not url:
-        return None
-    marker = "/webhooks/telegram/"
-    if marker in url:
-        return url.split(marker, 1)[0] + marker + "[REDACTED]"
-    return "[CONFIGURED]"
-
-
-def _redact_sensitive(value):
-    if isinstance(value, dict):
-        result = {}
-        for key, item in value.items():
-            lower = str(key).casefold()
-            if any(token in lower for token in ("password", "authorization", "private_key")):
-                result[key] = "[REDACTED]"
-            elif lower in {"token", "secret", "api_key"} or lower.endswith(("_token", "_secret")):
-                result[key] = "[REDACTED]"
-            else:
-                result[key] = _redact_sensitive(item)
-        return result
-    if isinstance(value, list):
-        return [_redact_sensitive(item) for item in value]
-    if isinstance(value, str):
-        redacted = value
-        for secret in (settings.bot_token, settings.github_token, settings.effective_telegram_webhook_secret):
-            if secret:
-                redacted = redacted.replace(str(secret), "[REDACTED]")
-        return redacted
-    return value
-
-
 async def collect_diagnostics(*, test_github: bool = True, test_telegram=None) -> dict:
     result: dict = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -88,7 +56,7 @@ async def collect_diagnostics(*, test_github: bool = True, test_telegram=None) -
                 "ok": True,
                 "username": me.username,
                 "mode": runtime_status.telegram_mode,
-                "webhook_url": _masked_webhook_url(webhook.url),
+                "webhook_url": webhook.url,
                 "pending_update_count": webhook.pending_update_count,
                 "last_error_message": webhook.last_error_message,
             }
@@ -107,5 +75,4 @@ async def collect_diagnostics(*, test_github: bool = True, test_telegram=None) -
 
 
 def diagnostics_bytes(payload: dict) -> bytes:
-    safe_payload = _redact_sensitive(payload)
-    return json.dumps(safe_payload, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    return json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8")

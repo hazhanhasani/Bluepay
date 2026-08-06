@@ -20,6 +20,7 @@ from app.api.errors import error_response
 from app.api.schemas import (CreateInvoiceRequest, SandboxCreateInvoiceRequest, SandboxSimulationRequest, SmsDeviceCreateRequest, SmsDevicePolicyRequest, StoreSecurityRequest, TeamMemberRequest)
 from app.core.config import settings
 from app.core.security import decrypt_text
+from app.core.datetime_utils import as_utc, iso_utc_z, remaining_seconds
 from app.core.urls import validate_public_https_url
 from app.db.session import get_session
 from app.models import Invoice, Merchant, MerchantTeamMember, PaymentEvent, SandboxInvoice, SmsDevice, SmsTransaction, Store
@@ -54,27 +55,15 @@ from app.version import APP_VERSION
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
-templates.env.globals["app_version"] = APP_VERSION
 _BOT_USERNAME_CACHE: str | None = None
-MAX_SMS_WEBHOOK_BYTES = 64 * 1024
 
 
 def rial_to_toman(value: int) -> int:
     return value // 10
 
 
-async def _read_sms_webhook_payload(
-    request: Request,
-    raw_body: bytes | None = None,
-) -> tuple[str, str, str | None, str | None]:
-    if raw_body is None:
-        raw_body = await request.body()
-    if len(raw_body) > MAX_SMS_WEBHOOK_BYTES:
-        raise SmsPayloadError(
-            "SMS_PAYLOAD_TOO_LARGE",
-            "حجم بدنه پیامک بیشتر از حد مجاز است",
-            raw_body[:240].decode("utf-8", errors="replace"),
-        )
+async def _read_sms_webhook_payload(request: Request) -> tuple[str, str, str | None, str | None]:
+    raw_body = await request.body()
     raw_text = raw_body.decode("utf-8", errors="replace")
     return parse_sms_payload(
         raw_text,
@@ -108,8 +97,8 @@ def invoice_payload(invoice: Invoice) -> dict:
         "subscription_id": invoice.subscription_id,
         "payment_url": f"{settings.base_url}/pay/{invoice.token}",
         "return_url": invoice.return_url,
-        "expires_at": invoice.expires_at.isoformat(),
-        "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
+        "expires_at": iso_utc_z(invoice.expires_at),
+        "paid_at": iso_utc_z(invoice.paid_at),
         "reference_number": invoice.reference_number,
         "store_id": invoice.store_id,
         "api_key_id": invoice.api_key_id,
@@ -494,30 +483,16 @@ async def api_create_invoice(
     idem_row = None
     if idempotency_key:
         try:
-            existing = await get_idempotent_response(
-                session, scope=scope, key=idempotency_key, request_hash=request_hash
-            )
-            if existing:
-                status, response_payload = existing
-                return JSONResponse(
-                    status_code=status,
-                    content=response_payload,
-                    headers={"Idempotency-Replayed": "true"},
-                )
-            idem_row = await reserve_idempotency(
-                session, scope=scope, key=idempotency_key, request_hash=request_hash
-            )
+            existing = await get_idempotent_response(session, scope=scope, key=idempotency_key, request_hash=request_hash)
         except ValueError as exc:
             code = str(exc)
             if code == "IDEMPOTENCY_KEY_REUSED":
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": code, "message": "این Idempotency-Key قبلاً با بدنه دیگری استفاده شده است"},
-                )
-            raise HTTPException(
-                status_code=409,
-                detail={"code": code, "message": "درخواست هم‌زمان با همین Idempotency-Key در حال پردازش است"},
-            )
+                raise HTTPException(status_code=409, detail={"code": code, "message": "این Idempotency-Key قبلاً با بدنه دیگری استفاده شده است"})
+            raise HTTPException(status_code=409, detail={"code": code, "message": "درخواست هم‌زمان با همین Idempotency-Key در حال پردازش است"})
+        if existing:
+            status, response_payload = existing
+            return JSONResponse(status_code=status, content=response_payload, headers={"Idempotency-Replayed": "true"})
+        idem_row = await reserve_idempotency(session, scope=scope, key=idempotency_key, request_hash=request_hash)
 
     risk = await evaluate_invoice_creation(
         session,
@@ -527,15 +502,8 @@ async def api_create_invoice(
         client_ip=context.client_ip,
     )
     if not risk.allowed:
-        # Do not leave a reserved Idempotency-Key in a permanent "in progress"
-        # state when risk controls reject the request.
-        if idem_row is not None:
-            await session.delete(idem_row)
         await session.commit()
-        raise HTTPException(
-            status_code=403,
-            detail={"code": risk.rule_code, "message": risk.detail, "details": {"risk_score": risk.score}},
-        )
+        raise HTTPException(status_code=403, detail={"code": risk.rule_code, "message": risk.detail, "details": {"risk_score": risk.score}})
 
     try:
         callback_url = str(body.callback_url) if body.callback_url else None
@@ -693,25 +661,14 @@ async def api_create_sandbox_invoice(
     idem_row = None
     if idempotency_key:
         try:
-            existing = await get_idempotent_response(
-                session, scope=scope, key=idempotency_key, request_hash=request_hash
-            )
-            if existing:
-                status, response_payload = existing
-                return JSONResponse(
-                    status_code=status,
-                    content=response_payload,
-                    headers={"Idempotency-Replayed": "true"},
-                )
-            idem_row = await reserve_idempotency(
-                session, scope=scope, key=idempotency_key, request_hash=request_hash
-            )
+            existing = await get_idempotent_response(session, scope=scope, key=idempotency_key, request_hash=request_hash)
         except ValueError as exc:
             code = str(exc)
-            raise HTTPException(
-                status_code=409,
-                detail={"code": code, "message": "Idempotency-Key قبلاً استفاده شده یا در حال پردازش است"},
-            )
+            raise HTTPException(status_code=409, detail={"code": code, "message": "Idempotency-Key قبلاً استفاده شده یا در حال پردازش است"})
+        if existing:
+            status, response_payload = existing
+            return JSONResponse(status_code=status, content=response_payload, headers={"Idempotency-Replayed": "true"})
+        idem_row = await reserve_idempotency(session, scope=scope, key=idempotency_key, request_hash=request_hash)
 
     token = "test_" + secrets.token_urlsafe(18)
     invoice = SandboxInvoice(
@@ -737,7 +694,7 @@ async def api_create_sandbox_invoice(
             "amount_rial": invoice.amount_rial,
             "payment_url": f"{settings.base_url}/sandbox/pay/{invoice.token}",
             "simulate_url": f"{settings.base_url}/api/v1/sandbox/invoices/{invoice.token}/simulate",
-            "expires_at": invoice.expires_at.isoformat(),
+            "expires_at": iso_utc_z(invoice.expires_at),
             "store_id": context.store.id,
             "store_code": context.store.code,
         }
@@ -782,8 +739,8 @@ async def api_sandbox_invoice_status(
         "amount_rial": invoice.amount_rial,
         "reference_number": invoice.reference_number,
         "callback_status": invoice.callback_status,
-        "expires_at": invoice.expires_at.isoformat(),
-        "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
+        "expires_at": iso_utc_z(invoice.expires_at),
+        "paid_at": iso_utc_z(invoice.paid_at),
     }
 
 
@@ -1192,42 +1149,31 @@ async def public_invoice_status(token: str, session: AsyncSession = Depends(get_
     if not invoice:
         raise HTTPException(status_code=404, detail="فاکتور یافت نشد")
     now = datetime.now(timezone.utc)
-    expires_at = invoice.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
+    expires_at = as_utc(invoice.expires_at)
+    if invoice.status in {"pending", "partially_paid"} and expires_at is not None and expires_at <= now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
-    return JSONResponse(
-        content={
-            "status": invoice.status,
-            "reference_number": invoice.reference_number,
-            "received_amount_rial": int(invoice.received_amount_rial or 0),
-            "remaining_amount_rial": max(0, invoice.payable_amount_rial - int(invoice.received_amount_rial or 0)),
-            "completion_mode": invoice.completion_mode,
-        },
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
-    )
+    return {
+        "status": invoice.status,
+        "reference_number": invoice.reference_number,
+        "received_amount_rial": int(invoice.received_amount_rial or 0),
+        "remaining_amount_rial": max(0, invoice.payable_amount_rial - int(invoice.received_amount_rial or 0)),
+        "completion_mode": invoice.completion_mode,
+        "expires_at": iso_utc_z(expires_at),
+        "server_time": iso_utc_z(now),
+        "remaining_seconds": remaining_seconds(expires_at, now=now),
+    }
 
 
 @router.get("/pay/{token}", response_class=HTMLResponse)
 async def payment_page(request: Request, token: str, session: AsyncSession = Depends(get_session)):
-    page_headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Expires": "0",
-    }
     invoice = await get_invoice_by_token(session, token)
     if not invoice:
-        return templates.TemplateResponse(
-            "not_found.html", {"request": request}, status_code=404, headers=page_headers
-        )
+        return templates.TemplateResponse("not_found.html", {"request": request}, status_code=404)
 
     now = datetime.now(timezone.utc)
-    expires_at = invoice.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if invoice.status in {"pending", "partially_paid"} and expires_at < now:
+    expires_at = as_utc(invoice.expires_at)
+    if invoice.status in {"pending", "partially_paid"} and expires_at is not None and expires_at <= now:
         await release_invoice_reservation(session, invoice, "expired")
         await session.commit()
 
@@ -1251,17 +1197,9 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
         await session.commit()
 
     if invoice.status == "paid":
-        return templates.TemplateResponse(
-            "success.html",
-            {"request": request, "invoice": invoice, "toman": rial_to_toman},
-            headers=page_headers,
-        )
+        return templates.TemplateResponse("success.html", {"request": request, "invoice": invoice, "toman": rial_to_toman})
     if invoice.status in {"expired", "cancelled"}:
-        return templates.TemplateResponse(
-            "expired.html",
-            {"request": request, "invoice": invoice, "toman": rial_to_toman},
-            headers=page_headers,
-        )
+        return templates.TemplateResponse("expired.html", {"request": request, "invoice": invoice, "toman": rial_to_toman})
 
     encryption_key = await get_setting(session, "encryption_key")
     try:
@@ -1271,6 +1209,7 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
     except Exception:
         card_display = "****-****-****-" + invoice.card.card_last4
         card_copy = ""
+    option_profile = None
     try:
         from app.models import MerchantVerification
         verification = await session.scalar(
@@ -1287,10 +1226,12 @@ async def payment_page(request: Request, token: str, session: AsyncSession = Dep
             "card_copy": card_copy,
             "toman": rial_to_toman,
             "bank_name": bank_label(invoice.card.bank_code),
-            "expires_at_iso": expires_at.astimezone(timezone.utc).isoformat(),
+            "option_profile": option_profile,
             "verification": verification,
+            "expires_at_utc": iso_utc_z(expires_at),
+            "server_time_utc": iso_utc_z(now),
+            "remaining_seconds": remaining_seconds(expires_at, now=now),
         },
-        headers=page_headers,
     )
 
 
@@ -1310,7 +1251,7 @@ async def merchant_sms_webhook(
 
     raw_body = await request.body()
     try:
-        sender, message, device_id, bank_code = await _read_sms_webhook_payload(request, raw_body)
+        sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
     except SmsPayloadError as exc:
         background_tasks.add_task(
             send_invalid_sms_payload_notice,
@@ -1476,9 +1417,8 @@ async def legacy_sms_webhook(
     if not expected or not hmac.compare_digest(x_sms_secret, expected):
         raise HTTPException(status_code=401, detail={"code": "INVALID_SMS_WEBHOOK_SECRET", "message": "Webhook secret نامعتبر است"})
 
-    raw_body = await request.body()
     try:
-        sender, message, device_id, bank_code = await _read_sms_webhook_payload(request, raw_body)
+        sender, message, device_id, bank_code = await _read_sms_webhook_payload(request)
     except SmsPayloadError as exc:
         return error_response(
             request,

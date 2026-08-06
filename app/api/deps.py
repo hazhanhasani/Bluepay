@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
@@ -59,21 +59,9 @@ async def api_context(
                 raise HTTPException(status_code=401, detail={"code": "API_KEY_EXPIRED", "message": "API key منقضی شده است"})
         if not client_ip_allowed(store, client_ip):
             raise HTTPException(status_code=403, detail={"code": "IP_NOT_ALLOWED", "message": "IP درخواست در فهرست مجاز فروشگاه نیست"})
-        previous_used_at = key.last_used_at
-        if previous_used_at and previous_used_at.tzinfo is None:
-            previous_used_at = previous_used_at.replace(tzinfo=timezone.utc)
-        should_persist_usage = (
-            previous_used_at is None
-            or previous_used_at <= now - timedelta(minutes=5)
-            or key.last_used_ip != client_ip
-        )
-        if should_persist_usage:
-            key.last_used_at = now
-            key.last_used_ip = client_ip
-            # Dependency-only updates used to be flushed and then rolled back
-            # when the request-scoped session closed. Commit the throttled
-            # usage metadata so the admin panel reflects real key activity.
-            await session.commit()
+        key.last_used_at = now
+        key.last_used_ip = client_ip
+        await session.flush()
         return ApiContext(merchant=merchant, store=store, api_key=key, legacy=bool(key.is_legacy), client_ip=client_ip)
 
     merchant = await session.scalar(select(Merchant).where(Merchant.api_key_hash == key_hash, Merchant.is_active.is_(True)))

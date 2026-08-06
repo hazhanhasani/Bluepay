@@ -9,7 +9,7 @@
     <div class="success-icon">✓</div>
     <span class="badge success">پرداخت موفق</span>
     <h1>{% if invoice.purpose == 'wallet_topup' %}کیف پول با موفقیت شارژ شد{% else %}تراکنش با موفقیت تأیید شد{% endif %}</h1>
-    <p>{% if invoice.purpose == 'wallet_topup' %}اعتبار پرداخت‌شده به کیف پول بلوپی اضافه شد.{% else %}پرداخت شما برای {{ invoice.store.name if invoice.store else invoice.merchant.name }} ثبت شد.{% endif %}</p>
+    <p>{% if invoice.purpose == 'wallet_topup' %}اعتبار پرداخت‌شده به کیف پول بلوپی اضافه شد.{% else %}پرداخت شما برای {{ invoice.merchant.name }} ثبت شد.{% endif %}</p>
     <div class="amount">{{ "{:,}".format(toman(invoice.payable_amount_rial)) }} <small>تومان</small></div>
     <div class="summary">
       <div><span>{% if invoice.purpose == 'wallet_topup' %}نوع عملیات{% else %}عنوان سفارش{% endif %}</span><b>{{ invoice.description or '-' }}</b></div>

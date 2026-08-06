@@ -1,4 +1,12 @@
-# BluePay v1.2.2 — Integration Core Bugfix
+
+## 1.2.2 — UTC invoice timer fix
+
+- Payment countdown is now based on server-authoritative remaining seconds, not the phone clock.
+- SQLite naive timestamps are normalized to UTC before API or template output.
+- All invoice timestamps are returned with a trailing `Z`.
+- Fresh invoices no longer appear expired on Iran/Italy time zones.
+
+# BluePay v1.2.1 — Integration Core
 
 بلوپی یک زیرساخت اتصال پرداخت برای سایت‌ها و ربات‌ها است. تمرکز این نسخه روی صدور فاکتور از API یا ربات، تأیید پیامک بانکی، Callback امضاشده، مدیریت فروشگاه و کارت مقصد، کیف پول و گزارش‌ها است.
 
@@ -14,20 +22,6 @@
 - Sandbox، Timeline، گزارش مالی و پنل پذیرنده
 - دستگاه امن SMS Forwarder
 - تیم، Audit Log، سلامت سرویس و ابزارهای عملیاتی
-
-
-## تغییر نسخه 1.2.2
-
-- جلوگیری از تداخل انقضای فاکتور با تأیید هم‌زمان پیامک بانکی.
-- جلوگیری از ساخت فاکتور دستی تکراری با دوبارزدن دکمه تأیید.
-- پایدارسازی Polling تلگرام و حذف خودکار Webhook قدیمی.
-- اصلاح صف بکاپ SQLite، Snapshot پس از Migration و مسیر GitHub branch reference.
-- اصلاح Idempotency درخواست‌های هم‌زمان و رزروهای نیمه‌کاره.
-- مخفی‌سازی Secret وبهوک و اطلاعات محرمانه در گزارش عیب‌یابی.
-- اعتبارسنجی مقاوم ZIP انتشار، تشخیص فایل ناقص، مسیر تکراری و Zip Bomb.
-- اصلاح کش صفحات پرداخت، تاریخ انقضا و حلقه Reload در پایان مهلت.
-- ثبت پایدار زمان آخرین استفاده API Key با محدودسازی نوشتن‌های اضافی.
-- مقاوم‌سازی ورودی‌های متنی ربات در ثبت کارت و فرمان‌های مدیریتی.
 
 ## تغییر نسخه 1.2.1
 

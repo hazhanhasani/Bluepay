@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#07101f">
-  <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.store.name if invoice.store else invoice.merchant.name }}{% endif %}</title>
+  <title>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول{% else %}پرداخت امن | {{ invoice.merchant.name }}{% endif %}</title>
   <link rel="icon" type="image/png" href="/static/brand/bluepay-favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=1.0.0">
+  <link rel="stylesheet" href="/static/style.css?v=1.2.2">
 </head>
 <body class="payment-body">
 <main class="shell">
@@ -25,10 +25,10 @@
   </div>
 
   <section class="card merchant-head">
-    <div class="logo {% if invoice.purpose == 'wallet_topup' %}logo-image{% endif %}">{% if invoice.purpose == 'wallet_topup' %}<img src="/static/brand/bluepay-logo-full.png" alt="BluePay">{% else %}{{ (invoice.store.name if invoice.store else invoice.merchant.name)[:1] }}{% endif %}</div>
+    <div class="logo {% if invoice.purpose == 'wallet_topup' %}logo-image{% endif %}">{% if invoice.purpose == 'wallet_topup' %}<img src="/static/brand/bluepay-logo-full.png" alt="BluePay">{% else %}{{ invoice.merchant.name[:1] }}{% endif %}</div>
     <div>
       <small>{% if invoice.purpose == 'wallet_topup' %}افزایش اعتبار خدمات{% else %}پرداخت به پذیرنده{% endif %}</small>
-      <h1>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول بلوپی{% else %}{{ invoice.store.name if invoice.store else invoice.merchant.name }}{% endif %}</h1>
+      <h1>{% if invoice.purpose == 'wallet_topup' %}شارژ کیف پول بلوپی{% else %}{{ invoice.merchant.name }}{% endif %}</h1>
       <div class="eyebrow">{{ invoice.description or 'پرداخت سفارش' }}</div>
     </div>
     <span class="badge pending">در انتظار واریز</span>
@@ -89,6 +89,22 @@ let navigating=false;
 let expirationHandled=false;
 let timerHandle=null;
 let statusHandle=null;
+let countdownRemainingMs=Math.max(0, Number({{ remaining_seconds|default(0)|int }})*1000);
+let countdownSyncedAt=performance.now();
+
+function syncCountdown(seconds){
+  const parsed=Number(seconds);
+  if(!Number.isFinite(parsed)) return;
+  countdownRemainingMs=Math.max(0, parsed*1000);
+  countdownSyncedAt=performance.now();
+  if(countdownRemainingMs>0){
+    expirationHandled=false;
+    document.querySelectorAll('.amount-copy-button, .bank-card button').forEach((button)=>{
+      button.disabled=false;
+      button.removeAttribute('aria-disabled');
+    });
+  }
+}
 
 function renderNetworkState(online, text){
   const el=document.getElementById('networkState');
@@ -122,6 +138,9 @@ async function checkStatus(){
     const data=await response.json();
     statusFailures=0;
     renderNetworkState(true,'اتصال برقرار است؛ وضعیت پرداخت در حال پایش است');
+    if(Number.isFinite(Number(data.remaining_seconds))){
+      syncCountdown(data.remaining_seconds);
+    }
     if(['paid','expired','cancelled'].includes(data.status)){
       openTerminalPage();
       return;
@@ -136,10 +155,9 @@ async function checkStatus(){
   }
 }
 
-const expiry=new Date('{{ invoice.expires_at.isoformat() }}');
 function tick(){
   const countdown=document.getElementById('countdown');
-  const diff=expiry.getTime()-Date.now();
+  const diff=countdownRemainingMs-(performance.now()-countdownSyncedAt);
   if(diff<=0){
     countdown.textContent='پایان مهلت';
     if(!expirationHandled){

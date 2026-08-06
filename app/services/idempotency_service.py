@@ -6,21 +6,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import IdempotencyRecord
-
-PENDING_REQUEST_STALE_AFTER = timedelta(minutes=5)
 
 
 def canonical_request_hash(payload: Any) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 async def get_idempotent_response(
@@ -38,22 +31,15 @@ async def get_idempotent_response(
     )
     if not row:
         return None
-
     now = datetime.now(timezone.utc)
-    if _aware(row.expires_at) <= now:
+    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
         await session.delete(row)
         await session.flush()
         return None
     if row.request_hash != request_hash:
         raise ValueError("IDEMPOTENCY_KEY_REUSED")
-
     if row.response_json is None or row.response_status is None:
-        # A process can terminate after reserving a key but before storing the
-        # response. Do not block the caller for the full 24-hour TTL.
-        if row.created_at and _aware(row.created_at) <= now - PENDING_REQUEST_STALE_AFTER:
-            await session.delete(row)
-            await session.flush()
-            return None
         raise ValueError("IDEMPOTENCY_REQUEST_IN_PROGRESS")
     return row.response_status, json.loads(row.response_json)
 
@@ -72,23 +58,9 @@ async def reserve_idempotency(
         request_hash=request_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(hours=ttl_hours),
     )
-    try:
-        # Keep a concurrent unique-key conflict inside a savepoint so the
-        # endpoint's main transaction remains usable for a clean 409 response.
-        async with session.begin_nested():
-            session.add(row)
-            await session.flush()
-        return row
-    except IntegrityError as exc:
-        existing = await session.scalar(
-            select(IdempotencyRecord).where(
-                IdempotencyRecord.scope == scope,
-                IdempotencyRecord.idempotency_key == key,
-            )
-        )
-        if existing and existing.request_hash != request_hash:
-            raise ValueError("IDEMPOTENCY_KEY_REUSED") from exc
-        raise ValueError("IDEMPOTENCY_REQUEST_IN_PROGRESS") from exc
+    session.add(row)
+    await session.flush()
+    return row
 
 
 async def finalize_idempotency(
