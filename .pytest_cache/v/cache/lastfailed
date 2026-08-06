@@ -1,9 +1,0 @@
-{
-  "tests/test_appearance_service.py": true,
-  "tests/test_global_fee_defaults.py": true,
-  "tests/test_sms_idempotency.py": true,
-  "tests/test_sms_noise_filter.py": true,
-  "tests/test_sms_webhook_token_rotation.py": true,
-  "tests/test_unique_amount.py": true,
-  "tests/test_wallet_fee_rules.py": true
-}

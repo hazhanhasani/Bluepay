@@ -1,7 +1,7 @@
 {
-  "name": "BluePay Railway PostgreSQL Healthcheck Recovery",
-  "version": "1.2.4",
-  "min_version": "1.2.2",
-  "description": "Fixes PostgreSQL migration transaction aborts caused by duplicate invoice indexes and prevents transient Telegram/callback worker failures from blocking Railway deployment healthchecks.",
+  "name": "BluePay Telegram Buttons Recovery",
+  "version": "1.2.5",
+  "min_version": "1.2.4",
+  "description": "Restores Telegram inline button delivery with explicit callback_query subscriptions, verified webhook registration, and automatic polling fallback.",
   "run_migrations": true
 }

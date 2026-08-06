@@ -52,6 +52,19 @@ dp.callback_query.outer_middleware(AccessGateMiddleware())
 dp.include_routers(access_router, admin_router, bot_router)
 
 
+def telegram_allowed_updates() -> list[str]:
+    """Return a stable Telegram update list that always includes button clicks.
+
+    Some deployment/runtime combinations can return an incomplete observer list
+    while routers are being initialized.  Keeping the two core update types
+    explicit prevents a webhook from being registered for messages only.
+    """
+
+    resolved = set(dp.resolve_used_update_types())
+    resolved.update({"message", "callback_query"})
+    return sorted(resolved)
+
+
 async def expiration_worker() -> None:
     while True:
         try:
@@ -108,28 +121,41 @@ async def housekeeping_worker() -> None:
 
 
 async def telegram_polling_worker() -> None:
-    await bot.delete_webhook(drop_pending_updates=False)
-    runtime_status.telegram_mode = "polling"
-    runtime_status.telegram_ok = True
+    """Run Telegram long polling as a self-healing delivery mode."""
+
     while True:
         try:
-            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), handle_signals=False)
+            # Removing a stale/broken webhook is required before getUpdates can
+            # receive messages and callback_query button events.
+            await bot.delete_webhook(drop_pending_updates=False)
+            runtime_status.telegram_mode = "polling"
+            runtime_status.telegram_ok = True
+            await dp.start_polling(
+                bot,
+                allowed_updates=telegram_allowed_updates(),
+                handle_signals=False,
+                close_bot_session=False,
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             runtime_status.telegram_ok = False
+            runtime_status.telegram_mode = "polling-retrying"
+            runtime_status.last_error = f"Telegram polling: {type(exc).__name__}: {exc}"
             print(f"telegram_worker_error={type(exc).__name__}: {exc}")
             await asyncio.sleep(5)
 
 
 async def telegram_delivery_supervisor() -> None:
-    """Configure Telegram independently from Railway's core HTTP readiness.
+    """Keep Telegram usable even when Railway webhook setup is unavailable.
 
-    A temporary Telegram/API failure must not keep a database-valid release in
-    Railway's healthcheck loop forever.  The supervisor retries until webhook
-    delivery is configured, or continuously supervises polling mode.
+    Webhook remains the preferred mode.  After three consecutive setup or
+    verification failures the service automatically falls back to long polling,
+    so /start, inline buttons and callback queries continue working without any
+    extra Railway variable.
     """
 
+    webhook_failures = 0
     while True:
         try:
             telegram_task = await configure_telegram_delivery()
@@ -140,9 +166,19 @@ async def telegram_delivery_supervisor() -> None:
             raise
         except Exception as exc:
             runtime_status.telegram_ok = False
-            runtime_status.telegram_mode = "retrying"
-            print(f"telegram_delivery_setup_error={type(exc).__name__}: {exc}")
-            await asyncio.sleep(15)
+            webhook_failures += 1
+            runtime_status.telegram_mode = "webhook-retrying"
+            runtime_status.last_error = f"Telegram webhook: {type(exc).__name__}: {exc}"
+            print(
+                f"telegram_delivery_setup_error attempt={webhook_failures} "
+                f"error={type(exc).__name__}: {exc}"
+            )
+            if settings.use_telegram_webhook and webhook_failures >= 3:
+                print("telegram_delivery_fallback=polling")
+                runtime_status.telegram_mode = "polling-fallback"
+                await telegram_polling_worker()
+                return
+            await asyncio.sleep(10)
 
 
 async def notify_startup_failure(exc: BaseException) -> None:
@@ -175,14 +211,20 @@ async def configure_telegram_delivery() -> asyncio.Task | None:
     if not me.id:
         raise RuntimeError("Telegram getMe returned no bot id")
     if settings.use_telegram_webhook:
-        await bot.set_webhook(
+        registered = await bot.set_webhook(
             url=settings.telegram_webhook_url,
             secret_token=settings.effective_telegram_webhook_secret,
-            allowed_updates=dp.resolve_used_update_types(),
+            allowed_updates=telegram_allowed_updates(),
             drop_pending_updates=False,
         )
+        if not registered:
+            raise RuntimeError("Telegram rejected webhook registration")
+        info = await bot.get_webhook_info()
+        if (info.url or "").rstrip("/") != settings.telegram_webhook_url.rstrip("/"):
+            raise RuntimeError(f"Telegram webhook URL mismatch: {info.url or 'empty'}")
         runtime_status.telegram_mode = "webhook"
         runtime_status.telegram_ok = True
+        runtime_status.last_error = None
         return None
     return asyncio.create_task(telegram_polling_worker(), name="telegram-polling")
 
@@ -297,6 +339,9 @@ async def liveness():
         "version": APP_VERSION,
         "process": "alive",
         "ready": runtime_status.ready,
+        "telegram_ok": runtime_status.telegram_ok,
+        "telegram_mode": runtime_status.telegram_mode,
+        "last_error": runtime_status.last_error,
     }
 
 
@@ -330,8 +375,32 @@ async def telegram_webhook(path_secret: str, request: Request):
         return JSONResponse(status_code=403, content={"ok": False})
     payload = await request.json()
     update = Update.model_validate(payload, context={"bot": bot})
-    await dp.feed_update(bot, update)
+    try:
+        await dp.feed_update(bot, update)
+    except Exception as exc:
+        runtime_status.telegram_ok = False
+        runtime_status.last_error = f"Telegram update: {type(exc).__name__}: {exc}"
+        print(
+            f"telegram_update_error update_id={payload.get('update_id')} "
+            f"type={type(exc).__name__}: {exc}"
+        )
+        callback_payload = payload.get("callback_query") or {}
+        callback_id = callback_payload.get("id")
+        if callback_id:
+            with contextlib.suppress(Exception):
+                await bot.answer_callback_query(
+                    callback_query_id=callback_id,
+                    text="خطای موقت در اجرای این گزینه؛ دوباره تلاش کنید.",
+                    show_alert=True,
+                )
+        if callback_id:
+            # Return 200 after acknowledging the button press. Telegram retries
+            # callback updates on 5xx and may execute a user action twice.
+            return {"ok": False, "handled": True}
+        # Message updates are safe to retry and should not be silently lost.
+        raise
     runtime_status.telegram_ok = True
+    runtime_status.last_error = None
     return {"ok": True}
 
 
